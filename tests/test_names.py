@@ -64,16 +64,41 @@ def test_hill_formula(raw: str, expected: str) -> None:
 
 _FIXTURE = [
     {"ref": "Q1", "name": "water", "aliases": [], "formulas": ["H₂O"], "rank": 200},
-    {"ref": "Q2", "name": "aspirin", "aliases": ["acetylsalicylic acid (9CI)"],
-     "formulas": ["C9H8O4"], "rank": 100},
-    {"ref": "Q3", "name": "D-glucose", "aliases": ["glucose", "grape sugar"],
-     "formulas": ["C6H12O6"], "rank": 50},
-    {"ref": "Q4", "name": "fructose", "aliases": ["fruit sugar"],
-     "formulas": ["C6H12O6"], "rank": 40},  # isomer of glucose
-    {"ref": "Q5", "name": "copper(II) sulfate pentahydrate", "aliases": [],
-     "formulas": ["CuSO4·5H2O"], "rank": 30},  # unparseable -> raw
-    {"ref": "Q6", "name": "", "aliases": ["acetone"], "formulas": ["C3H6O"],
-     "rank": 20},  # label promoted from alias
+    {
+        "ref": "Q2",
+        "name": "aspirin",
+        "aliases": ["acetylsalicylic acid (9CI)"],
+        "formulas": ["C9H8O4"],
+        "rank": 100,
+    },
+    {
+        "ref": "Q3",
+        "name": "D-glucose",
+        "aliases": ["glucose", "grape sugar"],
+        "formulas": ["C6H12O6"],
+        "rank": 50,
+    },
+    {
+        "ref": "Q4",
+        "name": "fructose",
+        "aliases": ["fruit sugar"],
+        "formulas": ["C6H12O6"],
+        "rank": 40,
+    },  # isomer of glucose
+    {
+        "ref": "Q5",
+        "name": "copper(II) sulfate pentahydrate",
+        "aliases": [],
+        "formulas": ["CuSO4·5H2O"],
+        "rank": 30,
+    },  # unparseable -> raw
+    {
+        "ref": "Q6",
+        "name": "",
+        "aliases": ["acetone"],
+        "formulas": ["C3H6O"],
+        "rank": 20,
+    },  # label promoted from alias
     {"ref": "Q7", "name": "", "aliases": [], "formulas": ["XX"], "rank": 5},  # dropped
     {"ref": "Q8", "name": "phlogiston", "aliases": [], "formulas": [], "rank": 1},  # dropped
 ]

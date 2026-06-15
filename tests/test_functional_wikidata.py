@@ -32,9 +32,18 @@ EXPECTED_FORMULA = "C10H10Fe"
 
 
 def _wikidata_reachable() -> bool:
-    url = remote._API + "?" + urllib.parse.urlencode(
-        {"action": "wbsearchentities", "search": "water",
-         "language": "en", "format": "json", "limit": 1}
+    url = (
+        remote._API
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "action": "wbsearchentities",
+                "search": "water",
+                "language": "en",
+                "format": "json",
+                "limit": 1,
+            }
+        )
     )
     req = urllib.request.Request(url, headers={"User-Agent": remote._UA})
     try:
@@ -67,9 +76,7 @@ def test_find_chemical_compound_resolves_wikidata_only_compound(monkeypatch) -> 
     # The fetched record was written to the Tier-2 cache: a second lookup with
     # the network back off still resolves it (no further HTTP).
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "0")
-    monkeypatch.setattr(
-        remote, "_get_json", lambda url: pytest.fail("should be served from cache")
-    )
+    monkeypatch.setattr(remote, "_get_json", lambda url: pytest.fail("should be served from cache"))
     cached = find_chemical_compound(WIKIDATA_ONLY, by="name")
     assert cached["source"] == "wikidata"
     assert cached["matches"][0]["formula"] == EXPECTED_FORMULA

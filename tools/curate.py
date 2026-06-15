@@ -46,13 +46,15 @@ def curate(records: list[dict], min_rank: int) -> list[dict]:
                 if na and na not in seen:
                     seen.add(na)
                     aliases.append(a)
-        out.append({
-            "ref": r["ref"],
-            "name": name,
-            "aliases": aliases,
-            "formulas": r["formulas"],
-            "rank": r["rank"],
-        })
+        out.append(
+            {
+                "ref": r["ref"],
+                "name": name,
+                "aliases": aliases,
+                "formulas": r["formulas"],
+                "rank": r["rank"],
+            }
+        )
     return out
 
 

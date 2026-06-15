@@ -58,6 +58,7 @@ def _bands(floor: int) -> list[tuple[int, int | None]]:
     bounds.append((floor, edges[-1] if edges else None))
     return bounds
 
+
 # Labels/aliases for an explicit id list -- cheap because VALUES bounds the scan.
 _PHASE2 = """
 SELECT ?c ?cLabel (GROUP_CONCAT(DISTINCT ?alias; separator="||") AS ?aliases) WHERE {{

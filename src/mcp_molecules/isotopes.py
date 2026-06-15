@@ -80,10 +80,7 @@ def _isotope_sources() -> tuple[dict[str, list], dict[str, list]]:
         if abundance:
             natural[z].append((mass, float(abundance)))
         saw = r.get("standard_atomic_weight")
-        if (
-            isinstance(saw, dict)
-            and r.get("mass_number") == saw.get("most_stable_mass_number")
-        ):
+        if isinstance(saw, dict) and r.get("mass_number") == saw.get("most_stable_mass_number"):
             stable_fallback[z] = mass
         sym = r.get("symbol")
         if sym != primary.get(z):  # isotope-specific label (D, T)

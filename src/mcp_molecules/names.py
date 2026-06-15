@@ -42,9 +42,7 @@ def _connect() -> sqlite3.Connection:
         raise NameDBUnavailable(f"bundled name database {_DB_FILE!r} not found") from exc
     if not path.is_file():
         raise NameDBUnavailable(f"bundled name database {_DB_FILE!r} not found")
-    con = sqlite3.connect(
-        f"file:{path}?mode=ro&immutable=1", uri=True, check_same_thread=False
-    )
+    con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True, check_same_thread=False)
     con.row_factory = sqlite3.Row
     return con
 
@@ -70,8 +68,10 @@ def lookup_formula(name: str) -> list[dict]:
     key = normalize_name(name)
     if not key:
         return []
-    rows = _connect().execute(
-        """
+    rows = (
+        _connect()
+        .execute(
+            """
         SELECT c.canonical_name AS name, f.formula_norm AS formula
         FROM names n
         JOIN compounds c ON c.id = n.compound_id
@@ -79,8 +79,10 @@ def lookup_formula(name: str) -> list[dict]:
         WHERE n.name_norm = ?
         ORDER BY f.is_primary DESC, c.id ASC
         """,
-        (key,),
-    ).fetchall()
+            (key,),
+        )
+        .fetchall()
+    )
     seen: set[tuple[str, str]] = set()
     out: list[dict] = []
     for r in rows:
@@ -106,8 +108,10 @@ def lookup_names(formula: str, limit: int = 5) -> list[dict]:
         key = unicodedata.normalize("NFKC", formula).strip()
     if not key:
         return []
-    rows = _connect().execute(
-        """
+    rows = (
+        _connect()
+        .execute(
+            """
         SELECT c.canonical_name AS name
         FROM formulas f
         JOIN compounds c ON c.id = f.compound_id
@@ -115,8 +119,10 @@ def lookup_names(formula: str, limit: int = 5) -> list[dict]:
         ORDER BY c.id ASC
         LIMIT ?
         """,
-        (key, limit),
-    ).fetchall()
+            (key, limit),
+        )
+        .fetchall()
+    )
     return [{"name": r["name"], "formula": key} for r in rows]
 
 
@@ -258,11 +264,7 @@ def find_compound(query: str, by: Direction = "auto", limit: int = 5) -> dict:
     directions = _directions(query, by)
     for direction in directions:
         for source in SOURCES:
-            hits = (
-                source.by_name(query)
-                if direction == "name"
-                else source.by_formula(query, limit)
-            )
+            hits = source.by_name(query) if direction == "name" else source.by_formula(query, limit)
             if hits:
                 src, lic = source.source_license()
                 return {

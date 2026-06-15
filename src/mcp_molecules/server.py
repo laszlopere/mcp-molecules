@@ -201,9 +201,7 @@ def isotope_distribution(
     threshold: Annotated[
         float,
         Field(
-            description=(
-                "Drop peaks below this percent of the base (most intense) peak."
-            ),
+            description=("Drop peaks below this percent of the base (most intense) peak."),
             ge=0.0,
             le=100.0,
         ),

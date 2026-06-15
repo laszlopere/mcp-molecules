@@ -182,9 +182,7 @@ def test_isotope_charge_reports_mz() -> None:
 def test_isotope_negative_charge_subtracts_proton() -> None:
     # [M-H]- halves nothing at |z|=1 but removes a proton.
     r = isotope_distribution("CH2O2", charge=-1)  # formic acid
-    assert r["base_peak"]["mz"] == pytest.approx(
-        r["base_peak"]["mass"] - 1.00728, abs=1e-3
-    )
+    assert r["base_peak"]["mz"] == pytest.approx(r["base_peak"]["mass"] - 1.00728, abs=1e-3)
 
 
 def test_isotope_doubly_charged_halves_mz() -> None:

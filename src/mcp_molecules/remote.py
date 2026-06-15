@@ -99,16 +99,20 @@ def wikidata_by_name(name: str, limit: int = 7) -> list[dict]:
     if not key:
         return []
 
-    search_url = _API + "?" + urllib.parse.urlencode(
-        {
-            "action": "wbsearchentities",
-            "search": name,
-            "language": "en",
-            "uselang": "en",
-            "type": "item",
-            "limit": limit,
-            "format": "json",
-        }
+    search_url = (
+        _API
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "action": "wbsearchentities",
+                "search": name,
+                "language": "en",
+                "uselang": "en",
+                "type": "item",
+                "limit": limit,
+                "format": "json",
+            }
+        )
     )
     search = _get_json(search_url)
     if not search:
@@ -117,14 +121,18 @@ def wikidata_by_name(name: str, limit: int = 7) -> list[dict]:
     if not qids:
         return []
 
-    entities_url = _API + "?" + urllib.parse.urlencode(
-        {
-            "action": "wbgetentities",
-            "ids": "|".join(qids),
-            "props": "claims|labels|aliases",
-            "languages": "en",
-            "format": "json",
-        }
+    entities_url = (
+        _API
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "action": "wbgetentities",
+                "ids": "|".join(qids),
+                "props": "claims|labels|aliases",
+                "languages": "en",
+                "format": "json",
+            }
+        )
     )
     data = _get_json(entities_url)
     if not data:
@@ -144,9 +152,7 @@ def wikidata_by_name(name: str, limit: int = 7) -> list[dict]:
         formulas = _formulae_from_claims(entity)
         if not label or not formulas:
             continue
-        records.append(
-            {"ref": qid, "name": label, "aliases": aliases, "formulas": formulas}
-        )
+        records.append({"ref": qid, "name": label, "aliases": aliases, "formulas": formulas})
     return records
 
 

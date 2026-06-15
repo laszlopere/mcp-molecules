@@ -66,9 +66,21 @@ def is_common_name(name: str) -> bool:
 
 
 _SANITY_KEEP = [
-    "Caffeine", "Water", "Ethanol", "Aspirin", "D-Glucose", "Sulfuric acid",
-    "Carbon dioxide", "Sodium chloride", "Copper(II) sulfate", "Vitamin B12",
-    "beta-Carotene", "L-ascorbic acid", "Acetic acid", "Ammonia", "Methane",
+    "Caffeine",
+    "Water",
+    "Ethanol",
+    "Aspirin",
+    "D-Glucose",
+    "Sulfuric acid",
+    "Carbon dioxide",
+    "Sodium chloride",
+    "Copper(II) sulfate",
+    "Vitamin B12",
+    "beta-Carotene",
+    "L-ascorbic acid",
+    "Acetic acid",
+    "Ammonia",
+    "Methane",
 ]
 _SANITY_DROP = [
     "2-(Acetyloxy)-3-carboxy-N,N,N-trimethylpropan-1-aminium",
@@ -97,8 +109,10 @@ def main() -> None:
             (kept if is_common_name(name) else dropped).append(name)
 
     total = len(kept) + len(dropped)
-    print(f"total={total}  kept={len(kept)} ({100*len(kept)/total:.1f}%)  "
-          f"dropped={len(dropped)} ({100*len(dropped)/total:.1f}%)\n")
+    print(
+        f"total={total}  kept={len(kept)} ({100 * len(kept) / total:.1f}%)  "
+        f"dropped={len(dropped)} ({100 * len(dropped) / total:.1f}%)\n"
+    )
 
     print("--- KEPT (spread sample) ---")
     for n in _spread(kept, 30):

@@ -129,8 +129,10 @@ def lookup_formula(name: str) -> tuple[list[dict], str, str]:
     key = normalize_name(name)
     if not key or not cache_path().exists():
         return [], "", ""
-    rows = _connect().execute(
-        """
+    rows = (
+        _connect()
+        .execute(
+            """
         SELECT c.canonical_name AS name, f.formula_norm AS formula,
                c.source AS source, c.license AS license
         FROM names n
@@ -139,8 +141,10 @@ def lookup_formula(name: str) -> tuple[list[dict], str, str]:
         WHERE n.name_norm = ?
         ORDER BY f.is_primary DESC, c.id ASC
         """,
-        (key,),
-    ).fetchall()
+            (key,),
+        )
+        .fetchall()
+    )
     return _dedup(rows)
 
 
@@ -149,8 +153,10 @@ def lookup_names(formula: str, limit: int = 5) -> tuple[list[dict], str, str]:
     key = formula_key(formula)
     if not key or not cache_path().exists():
         return [], "", ""
-    rows = _connect().execute(
-        """
+    rows = (
+        _connect()
+        .execute(
+            """
         SELECT c.canonical_name AS name, c.source AS source, c.license AS license
         FROM formulas f
         JOIN compounds c ON c.id = f.compound_id
@@ -158,8 +164,10 @@ def lookup_names(formula: str, limit: int = 5) -> tuple[list[dict], str, str]:
         ORDER BY c.id ASC
         LIMIT ?
         """,
-        (key, limit),
-    ).fetchall()
+            (key, limit),
+        )
+        .fetchall()
+    )
     matches = [{"name": r["name"], "formula": key} for r in rows]
     if not rows:
         return [], "", ""
@@ -187,10 +195,14 @@ def is_negative(query_norm: str, direction: str) -> bool:
     """True if a still-fresh remembered miss exists for (query, direction)."""
     if not query_norm or not cache_path().exists():
         return False
-    row = _connect().execute(
-        "SELECT fetched_at FROM negcache WHERE query_norm = ? AND direction = ?",
-        (query_norm, direction),
-    ).fetchone()
+    row = (
+        _connect()
+        .execute(
+            "SELECT fetched_at FROM negcache WHERE query_norm = ? AND direction = ?",
+            (query_norm, direction),
+        )
+        .fetchone()
+    )
     if row is None:
         return False
     return (time.time() - row["fetched_at"]) < negcache_ttl()
@@ -259,9 +271,7 @@ def store(records: list[dict], source: str, license: str) -> int:
                 "DELETE FROM negcache WHERE query_norm = ? AND direction = 'formula'", (key,)
             )
         for nm in norms:
-            con.execute(
-                "DELETE FROM negcache WHERE query_norm = ? AND direction = 'name'", (nm,)
-            )
+            con.execute("DELETE FROM negcache WHERE query_norm = ? AND direction = 'name'", (nm,))
         added += 1
     con.commit()
     return added

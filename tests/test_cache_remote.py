@@ -29,8 +29,7 @@ def test_cache_missing_file_reads_empty() -> None:
 
 
 def test_cache_store_and_lookup_roundtrip() -> None:
-    rec = {"ref": "Q283", "name": "water", "aliases": ["dihydrogen monoxide"],
-           "formulas": ["H2O"]}
+    rec = {"ref": "Q283", "name": "water", "aliases": ["dihydrogen monoxide"], "formulas": ["H2O"]}
     assert cache.store([rec], "wikidata", "CC0-1.0") == 1
     assert cache.cache_path().exists()
 
@@ -61,8 +60,11 @@ def test_negative_cache_ttl(monkeypatch) -> None:
 def test_store_clears_matching_negative() -> None:
     cache.remember_miss("water", "name")
     assert cache.is_negative("water", "name") is True
-    cache.store([{"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}],
-                "wikidata", "CC0-1.0")
+    cache.store(
+        [{"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}],
+        "wikidata",
+        "CC0-1.0",
+    )
     assert cache.is_negative("water", "name") is False
 
 
@@ -71,11 +73,13 @@ def test_store_clears_matching_negative() -> None:
 
 def _canned(monkeypatch, responses: dict[str, dict]) -> None:
     """Route remote._get_json by a substring found in the requested URL."""
+
     def fake(url: str):
         for needle, payload in responses.items():
             if needle in url:
                 return payload
         return None
+
     monkeypatch.setattr(remote, "_get_json", fake)
 
 
@@ -110,23 +114,34 @@ def test_online_enabled_defaults_on(monkeypatch, value, expected) -> None:
 
 def test_wikidata_by_name(monkeypatch) -> None:
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
-    _canned(monkeypatch, {
-        "wbsearchentities": {"search": [{"id": "Q283"}, {"id": "Q99999"}]},
-        "wbgetentities": {"entities": {
-            "Q283": {
-                "labels": {"en": {"value": "water"}},
-                "aliases": {"en": [{"value": "dihydrogen monoxide"}]},
-                "claims": {"P274": [{"mainsnak": {
-                    "snaktype": "value", "datavalue": {"value": "H2O"}}}]},
+    _canned(
+        monkeypatch,
+        {
+            "wbsearchentities": {"search": [{"id": "Q283"}, {"id": "Q99999"}]},
+            "wbgetentities": {
+                "entities": {
+                    "Q283": {
+                        "labels": {"en": {"value": "water"}},
+                        "aliases": {"en": [{"value": "dihydrogen monoxide"}]},
+                        "claims": {
+                            "P274": [
+                                {"mainsnak": {"snaktype": "value", "datavalue": {"value": "H2O"}}}
+                            ]
+                        },
+                    },
+                    "Q99999": {  # label does not match the query -> filtered out
+                        "labels": {"en": {"value": "something else"}},
+                        "aliases": {"en": []},
+                        "claims": {
+                            "P274": [
+                                {"mainsnak": {"snaktype": "value", "datavalue": {"value": "C2H6"}}}
+                            ]
+                        },
+                    },
+                }
             },
-            "Q99999": {  # label does not match the query -> filtered out
-                "labels": {"en": {"value": "something else"}},
-                "aliases": {"en": []},
-                "claims": {"P274": [{"mainsnak": {
-                    "snaktype": "value", "datavalue": {"value": "C2H6"}}}]},
-            },
-        }},
-    })
+        },
+    )
     recs = remote.wikidata_by_name("Water")
     assert len(recs) == 1
     assert recs[0]["ref"] == "Q283"
@@ -135,25 +150,49 @@ def test_wikidata_by_name(monkeypatch) -> None:
 
 def test_wikidata_by_name_normalizes_subscript_formula(monkeypatch) -> None:
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
-    _canned(monkeypatch, {
-        "wbsearchentities": {"search": [{"id": "Q283"}]},
-        "wbgetentities": {"entities": {"Q283": {
-            "labels": {"en": {"value": "water"}}, "aliases": {"en": []},
-            "claims": {"P274": [{"mainsnak": {
-                "snaktype": "value", "datavalue": {"value": "H₂O"}}}]},
-        }}},
-    })
+    _canned(
+        monkeypatch,
+        {
+            "wbsearchentities": {"search": [{"id": "Q283"}]},
+            "wbgetentities": {
+                "entities": {
+                    "Q283": {
+                        "labels": {"en": {"value": "water"}},
+                        "aliases": {"en": []},
+                        "claims": {
+                            "P274": [
+                                {"mainsnak": {"snaktype": "value", "datavalue": {"value": "H₂O"}}}
+                            ]
+                        },
+                    }
+                }
+            },
+        },
+    )
     assert remote.wikidata_by_name("water")[0]["formulas"] == ["H2O"]
 
 
 def test_wikidata_by_formula(monkeypatch) -> None:
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
-    _canned(monkeypatch, {"sparql": {"results": {"bindings": [
-        {"item": {"value": "http://www.wikidata.org/entity/Q283"},
-         "itemLabel": {"value": "water"}},
-        {"item": {"value": "http://www.wikidata.org/entity/Q404"},
-         "itemLabel": {"value": "Q404"}},  # no English label -> dropped
-    ]}}})
+    _canned(
+        monkeypatch,
+        {
+            "sparql": {
+                "results": {
+                    "bindings": [
+                        {
+                            "item": {"value": "http://www.wikidata.org/entity/Q283"},
+                            "itemLabel": {"value": "water"},
+                        },
+                        {
+                            "item": {"value": "http://www.wikidata.org/entity/Q404"},
+                            "itemLabel": {"value": "Q404"},
+                        },  # no English label -> dropped
+                    ]
+                }
+            }
+        },
+    )
     recs = remote.wikidata_by_formula("OH2")  # Hill-normalized to H2O
     assert [r["name"] for r in recs] == ["water"]
     assert recs[0]["formulas"] == ["H2O"]
@@ -190,14 +229,30 @@ def test_remote_miss_is_negatively_cached(monkeypatch) -> None:
 def test_find_compound_falls_through_to_remote_and_caches(monkeypatch) -> None:
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
     # A compound absent from the bundled subset; served by the mocked remote.
-    _canned(monkeypatch, {
-        "wbsearchentities": {"search": [{"id": "Q12345"}]},
-        "wbgetentities": {"entities": {"Q12345": {
-            "labels": {"en": {"value": "zzfakecompound"}}, "aliases": {"en": []},
-            "claims": {"P274": [{"mainsnak": {
-                "snaktype": "value", "datavalue": {"value": "C99H99"}}}]},
-        }}},
-    })
+    _canned(
+        monkeypatch,
+        {
+            "wbsearchentities": {"search": [{"id": "Q12345"}]},
+            "wbgetentities": {
+                "entities": {
+                    "Q12345": {
+                        "labels": {"en": {"value": "zzfakecompound"}},
+                        "aliases": {"en": []},
+                        "claims": {
+                            "P274": [
+                                {
+                                    "mainsnak": {
+                                        "snaktype": "value",
+                                        "datavalue": {"value": "C99H99"},
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                }
+            },
+        },
+    )
     r = names.find_compound("zzfakecompound", by="name")
     assert r["matches"][0] == {"name": "zzfakecompound", "formula": "C99H99"}
     assert r["source"] == "wikidata"
@@ -226,14 +281,25 @@ def test_ua_string_is_descriptive() -> None:
 def test_records_are_json_serializable(monkeypatch) -> None:
     # Guards the fetcher record shape the cache + builder both consume.
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
-    _canned(monkeypatch, {
-        "wbsearchentities": {"search": [{"id": "Q283"}]},
-        "wbgetentities": {"entities": {"Q283": {
-            "labels": {"en": {"value": "water"}}, "aliases": {"en": [{"value": "aqua"}]},
-            "claims": {"P274": [{"mainsnak": {
-                "snaktype": "value", "datavalue": {"value": "H2O"}}}]},
-        }}},
-    })
+    _canned(
+        monkeypatch,
+        {
+            "wbsearchentities": {"search": [{"id": "Q283"}]},
+            "wbgetentities": {
+                "entities": {
+                    "Q283": {
+                        "labels": {"en": {"value": "water"}},
+                        "aliases": {"en": [{"value": "aqua"}]},
+                        "claims": {
+                            "P274": [
+                                {"mainsnak": {"snaktype": "value", "datavalue": {"value": "H2O"}}}
+                            ]
+                        },
+                    }
+                }
+            },
+        },
+    )
     recs = remote.wikidata_by_name("water")
     assert json.loads(json.dumps(recs)) == recs
     assert set(recs[0]) == {"ref", "name", "aliases", "formulas"}
