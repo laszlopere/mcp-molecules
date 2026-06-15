@@ -17,6 +17,11 @@ class FormulaError(ValueError):
     """Raised when a formula cannot be parsed."""
 
 
+# Unicode subscript digits U+2080-U+2089 -> ASCII "0"-"9", so that formulae
+# written with typographic subscripts (e.g. "H₂O") parse like "H2O".
+_SUBSCRIPT_DIGITS = {0x2080 + d: ord("0") + d for d in range(10)}
+
+
 # A parsed term is one of:
 #   ("elem", symbol, count)
 #   ("group", [term, ...], count)
@@ -76,8 +81,12 @@ class _Parser:
 def parse_formula(src: str) -> list[tuple[str, int]]:
     """Parse ``src`` into an ordered atom tally of ``(symbol, count)`` pairs.
 
+    Unicode subscript digits (``U+2080``-``U+2089``) are accepted and treated
+    as their ASCII equivalents, so ``"H₂O"`` parses the same as ``"H2O"``.
+
     Raises :class:`FormulaError` on malformed input.
     """
+    src = src.translate(_SUBSCRIPT_DIGITS)
     parser = _Parser(src)
     terms = parser.parse_seq(in_group=False)
     if parser.peek() != "":

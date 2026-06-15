@@ -42,6 +42,12 @@ def test_parse_repeats_are_summed_in_order() -> None:
     assert parse_formula("CH3CH2OH") == [("C", 2), ("H", 6), ("O", 1)]
 
 
+def test_parse_unicode_subscripts() -> None:
+    assert parse_formula("H₂O") == parse_formula("H2O")
+    assert parse_formula("Fe₂(SO₄)₃") == parse_formula("Fe2(SO4)3")
+    assert parse_formula("C₆H₁₂O₆") == [("C", 6), ("H", 12), ("O", 6)]
+
+
 @pytest.mark.parametrize("bad", ["", "H2O)", "(H2O", "2H", ")"])
 def test_parse_errors(bad: str) -> None:
     with pytest.raises(FormulaError):

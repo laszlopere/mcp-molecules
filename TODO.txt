@@ -10,7 +10,7 @@ Keep every item very short (1-5 sentences).
 
 
 [ ] 0 Molecular weight calculator updates
-    [ ] 0.1 Accept Unicode subscript digits (U+2080-2089) in formulae in
+    [x] 0.1 Accept Unicode subscript digits (U+2080-2089) in formulae in
             addition to normal ASCII numbers, e.g. parse "H₂O" the same as
             "H2O". Normalize subscripts to ASCII before parsing.
 
@@ -45,8 +45,7 @@ Keep every item very short (1-5 sentences).
         [ ] 1.2.1 Wikidata -- CC0 1.0 (public domain), no obligations. P274
                   (formula) + English label/aliases; ~1.43M items have P274.
                   Query SPARQL (query.wikidata.org/sparql) or JSON dump; key
-                  on P274, not class Q11173. Must normalize Unicode subscript
-                  digits (U+2080-2089) -> ASCII for our parser.
+                  on P274, not class Q11173.
 
     [ ] 1.3 Auto-download dataset (MCP server fetches automatically): an
             optional larger/full dataset pulled on demand into a user cache
