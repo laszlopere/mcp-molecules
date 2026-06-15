@@ -1,5 +1,7 @@
 {
   "source": "https://physics.nist.gov/cgi-bin/Compositions/stand_alone.pl?ele=&all=all&ascii=ascii2&isotype=all",
+  "license": "Public domain in the United States: a work of NIST employees, not a Standard Reference Data (SRD) product, so not subject to copyright under 17 U.S.C. §105. NIST permits redistribution royalty-free provided NIST is acknowledged as the source; may be subject to foreign copyright. See https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications",
+  "citation": "Coursey, J.S., Schwab, D.J., Tsai, J.J., and Dragoset, R.A., NIST Atomic Weights and Isotopic Compositions with Relative Atomic Masses, National Institute of Standards and Technology, Gaithersburg, MD. https://physics.nist.gov/Comp",
   "column_descriptions": "https://www.nist.gov/pml/atomic-weights-and-isotopic-compositions-column-descriptions",
   "note_codes": {
     "g": "Geological materials are known in which the element has an isotopic composition outside the limits for normal material.",
