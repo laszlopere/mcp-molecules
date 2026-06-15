@@ -80,10 +80,32 @@ def _canned(monkeypatch, responses: dict[str, dict]) -> None:
 
 
 def test_online_disabled_returns_empty(monkeypatch) -> None:
-    # No MCP_MOLECULES_ONLINE set (conftest deletes it) -> hard offline.
+    # conftest forces MCP_MOLECULES_ONLINE=0 -> hard offline, no network touched.
     monkeypatch.setattr(remote, "_get_json", lambda url: pytest.fail("must not hit network"))
     assert remote.wikidata_by_name("water") == []
     assert remote.wikidata_by_formula("H2O") == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, True),  # unset -> on by default
+        ("", True),
+        ("1", True),
+        ("true", True),
+        ("anything", True),  # only explicit falsy values opt out
+        ("0", False),
+        ("false", False),
+        ("No", False),
+        ("OFF", False),
+    ],
+)
+def test_online_enabled_defaults_on(monkeypatch, value, expected) -> None:
+    if value is None:
+        monkeypatch.delenv("MCP_MOLECULES_ONLINE", raising=False)
+    else:
+        monkeypatch.setenv("MCP_MOLECULES_ONLINE", value)
+    assert remote.online_enabled() is expected
 
 
 def test_wikidata_by_name(monkeypatch) -> None:
@@ -181,7 +203,7 @@ def test_find_compound_falls_through_to_remote_and_caches(monkeypatch) -> None:
     assert r["source"] == "wikidata"
 
     # Now cached at Tier 2: a second lookup resolves with the network disabled.
-    monkeypatch.delenv("MCP_MOLECULES_ONLINE", raising=False)
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "0")
     monkeypatch.setattr(remote, "_get_json", lambda url: pytest.fail("should be cached"))
     r2 = names.find_compound("zzfakecompound", by="name")
     assert r2["matches"][0]["formula"] == "C99H99"

@@ -8,10 +8,10 @@ bundled subset and the writable cache both miss. Wikidata data is CC0 1.0 (publi
 domain, no attribution obligation), so anything fetched here may be cached and
 redistributed freely.
 
-Network is strictly opt-in (:func:`online_enabled`) and every call fails soft:
-on a timeout, HTTP error, or malformed response the functions return ``[]`` so an
-offline or flaky network degrades to "not found" rather than raising. A
-descriptive ``User-Agent`` is sent per the Wikimedia user-agent policy.
+Network is on by default but can be disabled (:func:`online_enabled`), and every
+call fails soft: on a timeout, HTTP error, or malformed response the functions
+return ``[]`` so an offline or flaky network degrades to "not found" rather than
+raising. A descriptive ``User-Agent`` is sent per the Wikimedia user-agent policy.
 
 Returned records use the fetcher shape ``{"ref", "name", "aliases", "formulas"}``
 so :func:`mcp_molecules.cache.store` can cache them directly. Formulae come from
@@ -41,12 +41,18 @@ _P274 = "P274"  # chemical formula
 SOURCE = "wikidata"
 LICENSE = "CC0-1.0"
 
-_TRUTHY = {"1", "true", "yes", "on"}
+# Online is the default; set $MCP_MOLECULES_ONLINE to a falsy value to opt out.
+_FALSY = {"0", "false", "no", "off"}
 
 
 def online_enabled() -> bool:
-    """True if the online fallback is opted in via ``$MCP_MOLECULES_ONLINE``."""
-    return os.environ.get("MCP_MOLECULES_ONLINE", "").strip().casefold() in _TRUTHY
+    """True unless the online fallback is opted out via ``$MCP_MOLECULES_ONLINE``.
+
+    The Tier-3 Wikidata fallback is on by default; set the variable to a falsy
+    value (``0`` / ``false`` / ``no`` / ``off``) to disable all network access and
+    keep lookups purely local (bundled subset + cache).
+    """
+    return os.environ.get("MCP_MOLECULES_ONLINE", "").strip().casefold() not in _FALSY
 
 
 def _get_json(url: str) -> dict | None:

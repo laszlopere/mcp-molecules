@@ -32,7 +32,10 @@ mcp = FastMCP(
         "by the NIST Atomic Weights and Isotopic Compositions database. Parses "
         "formulae with nested groups and isotope labels (e.g. 'Ca(OH)2', 'D2O'), "
         "and can report propagated uncertainties, monoisotopic mass, and percent "
-        "composition. Offline and deterministic; no network calls."
+        "composition -- offline and deterministic. Also resolves compound names "
+        "<-> formulae from a bundled database, with an on-by-default Wikidata "
+        "fallback for misses (set MCP_MOLECULES_ONLINE to a falsy value to keep "
+        "lookups fully offline)."
     ),
 )
 
