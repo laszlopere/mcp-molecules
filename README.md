@@ -9,22 +9,24 @@
 [![Checked with mypy](https://img.shields.io/badge/mypy-checked-2a6db2.svg)](https://mypy-lang.org/)
 [![Last commit](https://img.shields.io/github/last-commit/laszlopere/mcp-molecules.svg)](https://github.com/laszlopere/mcp-molecules/commits)
 
-**Molecular weights for the artificial minds — molar mass from a chemical
-formula, computed for real and backed by NIST data.**
+**Atoms and molecules for the artificial minds — trustworthy chemistry tools,
+computed for real and backed by authoritative data.**
 
-A language model asked "what does C₆H₁₂O₆ weigh?" should not have to recall a
-number; it should *compute* one it can trust. mcp-molecules parses a chemical
-formula, looks every element up in the NIST Atomic Weights and Isotopic
-Compositions database, and returns the molar mass — offline, deterministic, and
-with the option to carry the measurement uncertainty along with the answer.
+Atoms combine into molecules, and a language model asked about them should not
+have to recall facts from memory; it should *compute* answers it can trust.
+mcp-molecules is a growing toolbox for working with chemical elements and
+molecules — offline, deterministic, and backed by authoritative sources such as
+the NIST Atomic Weights and Isotopic Compositions database.
 
-The calculation is a faithful port of the C [`mwc`](https://github.com/laszlopere)
-tool and produces byte-for-byte identical results.
+For example, it can already take a chemical formula and return its molecular
+weight: ask "what does C₆H₁₂O₆ weigh?" and it parses the formula, looks every
+element up in NIST data, and computes the molar mass rather than guessing it.
+More molecule-oriented tools are planned.
 
 ## What it gives you
 
-- **`molecular_weight_calculator`** — compute the molecular weight (molar mass)
-  of a chemical formula. Parameters:
+- **`molecular_weight_calculator`** — *(one example of what's here today)*
+  compute the molecular weight (molar mass) of a chemical formula. Parameters:
   - `formula` — element symbols, integer multipliers, arbitrarily nested
     parentheses, and the isotope labels `D` (deuterium) and `T` (tritium).
     Examples: `H2O`, `C6H12O6`, `Ca(OH)2`, `Fe2(SO4)3`, `((CH3)2CH)2`, `D2O`, `Tc`.
@@ -67,8 +69,13 @@ is in the public domain. The data is bundled in the package as
 
 ## Sponsoring
 
-If this is useful to you, please consider
-[sponsoring](https://github.com/sponsors/laszlopere).
+Sponsoring this project will keep it alive. If it is useful to you, please
+consider [sponsoring](https://github.com/sponsors/laszlopere).
+
+## Credits
+
+The idea and the inspiration came from Mátyás Mayer. The idea was excellent,
+the inspiration priceless.
 
 ## License
 
