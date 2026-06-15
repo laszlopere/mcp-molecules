@@ -163,3 +163,46 @@ Keep every item very short (1-5 sentences).
             DONE: committed to the repo (a .gitignore negation tracks just this
             .db while *.db stays ignored), so it is version-tracked and hatchling
             ships it in the wheel by default. Regenerate then commit on refresh.
+
+[ ] 4 Calculator extensions (offline, deterministic, formula-in). New
+      computations derivable from the parsed formula + bundled NIST atomic data,
+      same ethos as the existing molecular_weight_calculator. No structure/
+      connectivity needed.
+    [ ] 4.1 Isotope distribution: full isotopic pattern (M, M+1, M+2 ...
+            relative intensities), not just the monoisotopic mass. The key
+            output for mass-spec comparison. Built from NIST isotope abundances.
+    [ ] 4.2 Adduct / charge-state m/z: report m/z for common ions ([M+H]+,
+            [M-H]-, [M+Na]+, multiply-charged) as (M +/- n*1.00728)/n. Pairs
+            with 4.1.
+    [ ] 4.3 Degree of unsaturation (rings + double bonds):
+            (2C + 2 + N - H - X) / 2. One-line saturation/aromaticity hint.
+    [ ] 4.4 Distinct, clearly-labeled mass flavors: nominal vs average vs
+            monoisotopic (exact) mass in one response -- people conflate them.
+    [ ] 4.5 Expose Hill-system formula normalization (canonicalize an input
+            formula). hill_formula already exists internally.
+    [ ] 4.6 Formula arithmetic: add/subtract formulae (e.g. glucose - H2O, or
+            sum a reaction's reactants) and report the net formula + mass.
+    [ ] 4.7 Reaction balancing + stoichiometry: solve coefficients for an
+            unbalanced equation (nullspace of the element matrix), then
+            mol<->gram conversion, limiting reagent, theoretical yield.
+    [ ] 4.8 Solution/prep math: molarity <-> mass <-> volume, dilution
+            (C1V1=C2V2), ppm/molal. Needs only molar mass.
+    [ ] 4.9 Inverse elemental analysis: given target mass %s (CHN), find the
+            best-fit formula. Inverse of percent composition.
+
+[ ] 5 Calculator extensions needing a small bundled static table (still
+      offline). A tiny per-element properties table, no network.
+    [ ] 5.1 Empirical -> molecular formula given a measured molar mass
+            (multiply the empirical unit to the nearest integer multiple).
+    [ ] 5.2 Per-element property lookups: valence, electronegativity,
+            group/period, common oxidation states. Enables oxidation-state
+            assignment for simple formulae.
+    [ ] 5.3 Formula validity / sanity checks: nitrogen rule, even-electron
+            rule, plausible valence balance; flag impossible compositions for a
+            given mass.
+
+[ ] 6 Out of scope for the calculator (structure-dependent). logP, pKa,
+      boiling/melting point, density, solubility, SMILES/InChI generation all
+      need connectivity a bare formula lacks -- these belong to the lookup side
+      (items 1-2), not the calculator. OPSIN/RDKit (1.3.4) is the formula<->
+      structure bridge if ever needed. Recorded here so we stop reconsidering.
