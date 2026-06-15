@@ -125,6 +125,14 @@ Keep every item very short (1-5 sentences).
             formula -> /compound/fastformula/{formula}/cids/JSON; partial ->
             /autocomplete/compound/{prefix}/json. Resolves trivial + systematic
             names + CAS numbers. Reliable; rate limit 5 req/s, 400 req/min.
+    [ ] 2.2 Wikidata -- CC0 1.0 (public domain, no attribution obligation).
+            A single-record lookup is light, so the bulk-extraction flakiness
+            from 1.2.1 mostly does not bite here. name -> entity via the API
+            (action=wbsearchentities&search={name}&language=en&type=item), then
+            read P274 (chemical formula) from its claims (action=wbgetentities&
+            props=claims|labels). formula -> name via SPARQL (?item wdt:P274
+            "{hill}"; rdfs:label @en). Normalize P274 through hill_formula; send
+            a descriptive User-Agent (WMF policy).
 
 [ ] 3 Pre-fetched cache databases (bundled + user cache).
       Small SQLite stores read first, before any network call. Bundled subset
