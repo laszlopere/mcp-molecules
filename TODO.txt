@@ -97,6 +97,21 @@ Keep every item very short (1-5 sentences).
                   Chemistry WebBook (SRD, all rights reserved), CAS Common
                   Chemistry (CC BY-NC), ChemIDplus (retired 2022 -> PubChem).
 
+    [ ] 1.4 Tool implementation -- the runtime query layer behind the MCP tools
+            name_to_formula / formula_to_name. They currently read only the
+            single bundled DB (src/mcp_molecules/names.py); wire them up to the
+            full tiered, multi-source design.
+        [ ] 1.4.1 Search the local, package-shipped databases (Tier 1, the
+                  bundled subset from 1.2). Read-only; the first tier hit in the
+                  lookup order. This is the always-available offline path.
+        [ ] 1.4.2 Search the cache databases (Tier 2, the writable user-dir
+                  store from 1.1.4). Consulted after the bundled subset and
+                  before any network call; holds records fetched in 1.4.3.
+        [ ] 1.4.3 Fetch records from the remote databases (Tier 3, online
+                  fallback per item 2) on a miss in 1.4.1+1.4.2. Opt-in network,
+                  fail soft to "not found" when offline, and write what comes
+                  back into the Tier-2 cache (1.4.2).
+
 [ ] 2 Per-request download of a chemical database record (online fallback).
       On a miss in the pre-fetched cache (item 3), query the live database(s)
       per request, return the record, and cache it. Opt-in network; graceful
