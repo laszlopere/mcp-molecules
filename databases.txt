@@ -1,0 +1,238 @@
+mcp-molecules -- name <-> formula databases
+===========================================
+
+Notes on the name<->formula dataset: what we learned, what we plan, and what is
+already built. Companion to TODO.txt (item 1). Plain running notes, kept current.
+
+
+WHAT WE LEARNED
+---------------
+
+Sources & licenses (both safe to redistribute):
+  - PubChem (NCBI/NLM) -- public domain (US gov). ~119M compounds. PUG-REST is
+    reliable: the batch property endpoint returns Title (canonical name) +
+    MolecularFormula together. Low CIDs are disproportionately the common
+    compounds (water=962, ethanol=702, aspirin=2244, caffeine=2519). Synonyms
+    (aliases) available via CID-Synonym-filtered.gz or per-CID REST.
+  - Wikidata -- CC0 1.0 (public domain). ~1.43M items with P274 (formula) +
+    English label/aliases. BUT the public SPARQL endpoint (query.wikidata.org)
+    is heavily rate-limited / often returns 502/504 and truncated responses;
+    bulk extraction is painful. Techniques that helped: cursor pagination on
+    the entity URI (deep OFFSET is rejected), narrow sitelink-count bands, a
+    per-attempt cache-buster comment (so retries don't re-read a cached error).
+    Still unreliable enough that we pivoted to PubChem for the bundled data.
+
+Dataset size (measured, then extrapolated):
+  - Names are the cost driver; a chemical's name is far longer than its formula.
+  - Names+formula only: ~148 bytes/compound all-in (display name ~45 chars +
+    normalized key ~45 chars + short formula stored twice + page overhead).
+  - Full PubChem (~119M), names+formula only:  ~17 GB.
+  - Full PubChem WITH synonyms/aliases:        ~100+ GB.
+  => Far too large to bundle in a wheel. Ship a small curated subset; offer the
+     rest as an opt-in download.
+
+Storage / schema optimizations (took the 100k-CID sample 22.1 MB -> 13.6 MB):
+  - Dropped per-row source/license: constant for a single-source DB, kept only
+    in the meta table.
+  - Dropped the per-row source id (ref): used for build-time dedup, not stored.
+  - WITHOUT ROWID lookup tables: the names table IS the B-tree keyed by the
+    normalized name, so the name is stored once (no separate, duplicate index).
+    Universally supported (SQLite >= 3.8.2), unlike FTS5.
+  - Remaining unavoidable cost: the name is stored 2x (display form + normalized
+    match key) and the formula 2x (clustered by compound_id for name->formula,
+    plus a reverse index on formula_norm for formula->name). Both are the floor
+    for fast bidirectional lookup with display names.
+
+Current bundled sample: PubChem CIDs 1..100,000 via PUG-REST -> 91,725 compounds
+(Title + MolecularFormula, no aliases yet) -> names_pubchem.db, 13.6 MB.
+
+
+THE PLAN -- TIERED CACHE (bundled subset + online fallback)
+-----------------------------------------------------------
+
+The whole dataset is too big to ship, but PubChem is live-searchable (see
+"PUBCHEM IS SEARCHABLE" below). So: ship a tiny pre-fill cache of the popular
+molecules, and fall back to the online databases on a miss, caching what comes
+back. Small + fast + effectively full coverage.
+
+Tier 1 -- bundled subset (ships in the wheel, read-only):
+   A small (few MB) curated set of compounds an ordinary person might look up
+   (caffeine, alcohol, aspirin, table salt, ...). Works fully offline, zero
+   setup. Selected by synonym-count rank (popularity) + the spelling heuristic
+   (drop systematic names). Acts as a pre-fill cache.
+
+Tier 2 -- user cache (writable, persists across runs):
+   A SEPARATE SQLite file in a user dir (e.g. ~/.cache/mcp-molecules/ or
+   ~/.local/share/...). The bundled DB cannot be written (opened ro&immutable,
+   lives in the installed package), so anything fetched online is stored here.
+   Grows with use; same schema/normalization as the bundled DB. Aligns with
+   TODO 1.1.4 (per-source DBs + loading from the user's home).
+
+Tier 3 -- online resolvers (opt-in network):
+   On a miss in Tiers 1+2, query the live databases -- PubChem PUG-REST first
+   (reliable); optionally others in parallel later -- normalize/merge the
+   results, return them, AND write them into the Tier-2 cache.
+
+Lookup order: bundled -> user cache -> online (if enabled).
+
+Design points:
+   - Network is opt-in / explicit. Offline (or network down) => graceful "not
+     found", never an error. The server's "offline by default" stance stays
+     true unless the user turns on online lookup.
+   - Negative caching: remember misses too (with a TTL) so repeated lookups of
+     a genuinely unknown name don't re-hit the network every time.
+   - Cache keys use the same normalize_name / hill_formula as everything else,
+     so a fetched record is found on the next lookup in either direction.
+   - Respect PubChem rate limits (5 req/s, 400 req/min); cache aggressively.
+   - Bulk download of a full offline dataset remains a separate, optional path
+     for users who want zero network -- but most users won't need it.
+
+Maps to TODO: Tier 1 = 1.2, Tier 2 = 1.1.4, Tier 3 = 1.3.
+
+
+PUBCHEM IS SEARCHABLE (live, PUG-REST)
+--------------------------------------
+
+PubChem resolves a query straight to a record -- no bulk download needed. Its
+name resolver understands trivial names, systematic IUPAC names, and CAS
+numbers. Verified endpoints (JSON):
+
+  name -> formula:
+    /rest/pug/compound/name/{name}/property/MolecularFormula,Title/JSON
+    ("ibuprofen" and "2-(4-isobutylphenyl)propanoic acid" both -> CID 3672)
+
+  formula -> CIDs (isomers):
+    /rest/pug/compound/fastformula/{formula}/cids/JSON?MaxRecords=N
+    (C9H8O4 -> [2244, 689043, 20392, 979, 66643])
+
+  fuzzy / partial:
+    /rest/autocomplete/compound/{prefix}/json?limit=N
+
+  miss: HTTP 404 with {"Fault": {"Code": "PUGREST.NotFound", ...}}
+
+This is what makes the Tier-3 online fallback cheap and reliable. (Wikidata's
+SPARQL endpoint, by contrast, was too flaky for this.)
+
+
+TOOLS ALREADY CREATED
+---------------------
+
+  tools/fetch_pubchem.py   -- PUG-REST fetcher over a CID range; emits JSONL
+                              {ref, name, aliases:[], formulas:[], rank=-CID}.
+  tools/fetch_wikidata.py  -- Wikidata SPARQL fetcher (banded + cache-buster).
+                              Kept for reference; endpoint is flaky.
+  tools/build_namedb.py    -- JSONL -> bundled SQLite .db. Source-agnostic
+                              (source/license/subset-rule are CLI args; stored
+                              in meta). WITHOUT ROWID schema; VACUUM at the end.
+  tools/name_filter.py     -- heuristic everyday-vs-systematic classifier
+                              (is_common_name) + analysis mode over a JSONL.
+  tools/verify_names.py    -- end-to-end smoke test through the MCP tools.
+
+Runtime (shipped) pieces:
+  src/mcp_molecules/naming.py  -- normalize_name + hill_formula (shared by build
+                                  and query).
+  src/mcp_molecules/names.py   -- read-only lookups over the bundled .db.
+  src/mcp_molecules/server.py  -- MCP tools name_to_formula, formula_to_name.
+
+
+FILTER ALREADY IMPLEMENTED
+--------------------------
+
+tools/name_filter.py :: is_common_name(name) -> bool. Keeps a name only if ALL
+hold (everything else is treated as systematic and dropped):
+  - length <= 30 chars
+  - <= 4 words
+  - <= 2 digits total
+  - no brackets ( ) [ ] { }   (roman-numeral oxidation states like "(II)" are
+    allowed back in before this check)
+  - no comma, and no locant pattern (a digit glued to "-" or ",", e.g. "2-",
+    "1,3", "-3")
+  - does not start with a digit
+
+Result on the 100k-CID sample: 91,725 -> 17,344 kept (18.9%); DB 13.6 MB ->
+1.5 MB. It cleanly removes locant/bracket/stereo systematic names and passes the
+sanity set (caffeine, water, ethanol, aspirin, sulfuric acid, Copper(II)
+sulfate, Vitamin B12, beta-Carotene, ... all kept).
+
+Known limitation: a spelling heuristic can tell "systematic vs not" but NOT
+"famous vs obscure". Short, word-like but obscure names survive (Sudexanox,
+Nicainoprol, Benzamidine). Reaching the truly-household ~2-5k set would need a
+popularity/notability signal (e.g. has-a-Wikipedia-article) layered on top.
+
+
+NOTABILITY SIGNAL: PUBCHEM SYNONYM COUNT
+----------------------------------------
+
+PubChem itself carries a strong "famous vs obscure" signal that our spelling
+heuristic cannot see: the number of synonyms a compound has. Verified:
+
+    Aspirin                          ~697 synonyms
+    Caffeine                         ~414
+    Water                            ~320
+    Acetyl-DL-carnitine (CID 1)        49
+    Triisobutylenated ...phosphate     17
+
+Famous compounds accumulate hundreds of names; obscure ones have a couple dozen.
+It is a smooth score, so we can rank by it (or threshold "keep >= N synonyms")
+instead of a hard yes/no. It also replaces the crude -CID "rank" proxy that made
+formula->name prefer "Hexose" over glucose for C6H12O6.
+
+Bonus: fetching synonyms gives us the aliases too, in the same pass. So one
+synonyms fetch yields BOTH the alias list and the popularity rank.
+
+Sources for the signal:
+  - per CID: PUG-REST /cid/{cid}/synonyms (batchable POST) -- used for the
+    bounded sample; returns the synonyms themselves.
+  - bulk: CID-Synonym-filtered.gz -- counts for all ~119M compounds in one
+    download; the efficient route at full scale.
+
+Other PubChem notability fields available (all public domain, bulk in
+ftp .../Compound/Extras/): CID-PMID.gz (literature/PubMed references),
+CID-Patent.gz (patents), CID-SID.gz (number of depositors), and a Wikipedia
+data source (presence of a Wikipedia article ~ near-perfect "everyday" flag).
+
+Plan: re-fetch the bounded sample capturing synonym count (-> rank) and aliases;
+then combine the spelling heuristic (drop systematic) with a synonym-count
+threshold (drop obscure) to land the curated everyday subset. CAS-number and
+code synonyms (e.g. "50-78-2") should be filtered out of stored aliases.
+
+
+EXAMPLES THAT NEED FURTHER FILTERING
+------------------------------------
+
+These pass the current heuristic but should be dropped. Each suggests a new rule:
+
+  "Ac-Asp-Glu-Val-Asp-MCA"
+      Peptide sequence: 3-letter residue codes (Asp/Glu/Val/...) joined by
+      hyphens, often with Ac- / -MCA / -AMC / -OMe caps. Rule idea: drop names
+      that are chains of known 3-letter amino-acid codes, or match the
+      Ac-/-MCA/-AMC peptide-probe pattern.
+
+  "AC1L1Sno"
+      PubChem internal / auto-generated identifier (no real name). Rule idea:
+      drop code-like tokens -- e.g. an "AC1" prefix, or mixed letter+digit runs
+      with no vowel structure of a normal word.
+
+  "alpha-Bromostyrene"
+      Systematic: Greek-letter locant prefix (alpha-/beta-/gamma-/omega-) on a
+      substituted parent. Rule idea: drop a leading Greek-letter locant when
+      followed by a substituent stem (careful: keep beta-Carotene, omega-3 --
+      these are established trivial names, so use an allow-list, not a blanket
+      drop).
+
+  "Boc-D-Asn-ONp"
+      Protected amino acid / peptide-synthesis shorthand: protecting groups
+      (Boc-, Fmoc-, Cbz-, Z-) and esters (-OMe, -OtBu, -ONp) around a residue.
+      Rule idea: drop names containing these protecting-group / active-ester
+      tokens.
+
+  "N-acetyl-alpha-D-galactosamine"
+      Systematic sugar/derivative: configuration + substituent descriptors
+      (N-acetyl-, alpha-D-, beta-L-) on a systematic stem. Rule idea: drop names
+      built from stacked config/substituent prefixes (N-..., alpha-D-, beta-L-,
+      O-..., S-...).
+
+Common thread: add a small set of "systematic morpheme / notation" patterns
+(amino-acid codes, protecting groups, Greek+config locants, internal-id shapes)
+with a short allow-list for established trivial names that would otherwise be
+caught (beta-Carotene, omega-3, L-ascorbic acid).

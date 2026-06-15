@@ -20,6 +20,11 @@ venv/
 .coverage
 htmlcov/
 
+# Build artifacts: raw datasets fetched by tools/ and the generated databases
+# (the bundled name DB is built via tools/build_namedb.py, not version-tracked)
+*.jsonl
+*.db
+
 # Editors
 .idea/
 .vscode/
