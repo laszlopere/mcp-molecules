@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-molecules"
+version = "0.1.0.dev0"
+description = "An MCP server for molecular weight / molar mass calculation from chemical formulae, backed by the NIST atomic weights database."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "László Pere", email = "226979892+laszlopere@users.noreply.github.com" },
+]
+keywords = ["mcp", "chemistry", "molecular-weight", "molar-mass", "nist"]
+dependencies = [
+    "mcp>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11"]
+
+[project.urls]
+Homepage = "https://github.com/laszlopere/mcp-molecules"
+Repository = "https://github.com/laszlopere/mcp-molecules"
+Issues = "https://github.com/laszlopere/mcp-molecules/issues"
+Funding = "https://github.com/sponsors/laszlopere"
+
+[project.scripts]
+mcp-molecules = "mcp_molecules.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_molecules"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
