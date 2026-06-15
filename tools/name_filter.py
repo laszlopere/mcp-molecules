@@ -32,6 +32,19 @@ _MAX_WORDS = 4
 _MAX_DIGITS = 2
 
 
+def clean_title(title: str) -> str:
+    """Strip a trailing stereo/config descriptor from a PubChem Title.
+
+    "Ibuprofen, (+-)-" -> "Ibuprofen"; "Chrysanthemic acid, cis-(+)-" ->
+    "Chrysanthemic acid". Leaves real names (and salt forms like "Lidocaine
+    Hydrochloride") untouched.
+    """
+    m = re.search(r",\s*([^,]*)$", title)
+    if m and len(m.group(1)) <= 12 and re.search(r"[()±]|\bcis\b|\btrans\b", m.group(1), re.I):
+        return title[: m.start()].strip()
+    return title
+
+
 def is_common_name(name: str) -> bool:
     """True if ``name`` looks like an everyday/trivial chemical name."""
     n = name.strip()
