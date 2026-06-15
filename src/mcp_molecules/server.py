@@ -13,6 +13,7 @@ from pydantic import Field
 
 from mcp_molecules import __version__
 from mcp_molecules.formula import parse_formula
+from mcp_molecules.isotopes import isotope_distribution as _isotope_distribution
 from mcp_molecules.names import find_compound
 from mcp_molecules.weights import load_weights
 
@@ -170,6 +171,78 @@ def molecular_weight_calculator(
         result["total_weight_g_per_mol"] = mw
 
     return result
+
+
+@mcp.tool()
+def isotope_distribution(
+    formula: Annotated[
+        str,
+        Field(
+            description=(
+                "Chemical formula whose isotopic pattern to compute. Same syntax "
+                "as molecular_weight_calculator: element symbols, integer "
+                "multipliers, nested groups, isotope labels D/T, Unicode "
+                "subscripts. Examples: 'CHCl3', 'C6H5Br', 'C254H377N65O75S6'."
+            )
+        ),
+    ],
+    charge: Annotated[
+        int,
+        Field(
+            description=(
+                "Ion charge. 0 (default) reports neutral isotopologue masses. A "
+                "non-zero n reports m/z for the [M+nH] ion (positive) or [M-nH] "
+                "ion (negative): (mass +/- n*proton)/|n|."
+            ),
+            ge=-10,
+            le=10,
+        ),
+    ] = 0,
+    threshold: Annotated[
+        float,
+        Field(
+            description=(
+                "Drop peaks below this percent of the base (most intense) peak."
+            ),
+            ge=0.0,
+            le=100.0,
+        ),
+    ] = 0.1,
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum number of peaks to return, most intense first.",
+            ge=1,
+            le=100,
+        ),
+    ] = 10,
+    grouping: Annotated[
+        Literal["unit", "exact"],
+        Field(
+            description=(
+                "'unit' (default) collapses peaks to nominal integer masses "
+                "(intensity-weighted centroid) -- the low-resolution spectrum a "
+                "chemist eyeballs. 'exact' keeps every resolved isotopologue."
+            )
+        ),
+    ] = "unit",
+) -> dict:
+    """Compute the natural isotopic pattern (isotope distribution) of a formula.
+
+    Returns the set of isotopologue peaks a mass spectrometer would see: each
+    peak's neutral ``mass`` (and ``mz`` when ``charge`` is non-zero), its
+    intensity ``relative`` to the base peak, and its absolute ``abundance``.
+    Also reports the ``monoisotopic_mass`` (most-abundant isotope of each
+    element) and the ``average_mass``. Backed by the bundled NIST Atomic Weights
+    and Isotopic Compositions database -- offline and deterministic.
+
+    Peaks below ``threshold`` percent of the base peak are dropped; at most
+    ``limit`` are returned. ``grouping`` selects nominal-mass (``unit``) or
+    fully resolved (``exact``) peaks.
+
+    Raises ``ValueError`` for an unparseable formula or an unknown element.
+    """
+    return _isotope_distribution(formula, charge, threshold, limit, grouping)
 
 
 @mcp.tool()

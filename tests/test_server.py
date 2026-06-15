@@ -14,6 +14,7 @@ from mcp_molecules.formula import FormulaError, parse_formula
 from mcp_molecules.server import (
     find_chemical_compound,
     info,
+    isotope_distribution,
     mcp,
     molecular_weight_calculator,
 )
@@ -30,6 +31,7 @@ def test_tools_registered() -> None:
     assert "info" in names
     assert "molecular_weight_calculator" in names
     assert "find_chemical_compound" in names
+    assert "isotope_distribution" in names
     # The directional tools were folded into find_chemical_compound.
     assert "name_to_formula" not in names
     assert "formula_to_name" not in names
@@ -135,3 +137,89 @@ def test_composition() -> None:
 def test_unknown_element_raises() -> None:
     with pytest.raises(ValueError, match="unknown element 'Xx'"):
         molecular_weight_calculator("Xx2")
+
+
+# --- isotope distribution --------------------------------------------------
+
+
+def _rel(result: dict) -> dict[int, float]:
+    """Map nominal mass -> relative intensity for easy assertions."""
+    return {p["nominal"]: p["relative"] for p in result["peaks"]}
+
+
+def test_isotope_pattern_three_chlorines() -> None:
+    # Chloroform's textbook M:M+2:M+4:M+6 ~ 100:96:31:3 triplet-plus.
+    rel = _rel(isotope_distribution("CHCl3"))
+    assert rel[118] == 100.0
+    assert rel[120] == pytest.approx(96.0, abs=1.0)
+    assert rel[122] == pytest.approx(30.7, abs=1.0)
+    assert rel[124] == pytest.approx(3.3, abs=0.5)
+
+
+def test_isotope_pattern_bromine_doublet() -> None:
+    # One bromine gives a near-1:1 M / M+2 doublet (79Br / 81Br).
+    rel = _rel(isotope_distribution("C6H5Br"))
+    assert rel[156] == 100.0
+    assert rel[158] == pytest.approx(97.3, abs=1.0)
+
+
+def test_isotope_monoisotopic_and_average_mass() -> None:
+    r = isotope_distribution("H2O")
+    assert r["monoisotopic_mass"] == pytest.approx(18.0106, abs=1e-3)
+    assert r["average_mass"] == pytest.approx(18.0153, abs=1e-3)
+
+
+def test_isotope_charge_reports_mz() -> None:
+    # [M+H]+ of water: (18.0106 + 1.00728) / 1.
+    r = isotope_distribution("H2O", charge=1)
+    base = r["base_peak"]
+    assert base["mz"] == pytest.approx(19.0178, abs=1e-3)
+    assert r["monoisotopic_mz"] == pytest.approx(19.0178, abs=1e-3)
+    # Neutral mode carries no m/z.
+    assert "mz" not in isotope_distribution("H2O")["base_peak"]
+
+
+def test_isotope_negative_charge_subtracts_proton() -> None:
+    # [M-H]- halves nothing at |z|=1 but removes a proton.
+    r = isotope_distribution("CH2O2", charge=-1)  # formic acid
+    assert r["base_peak"]["mz"] == pytest.approx(
+        r["base_peak"]["mass"] - 1.00728, abs=1e-3
+    )
+
+
+def test_isotope_doubly_charged_halves_mz() -> None:
+    r = isotope_distribution("C6H12O6", charge=2)
+    base = r["base_peak"]
+    assert base["mz"] == pytest.approx((base["mass"] + 2 * 1.00728) / 2, abs=1e-3)
+
+
+def test_isotope_exact_grouping_resolves_isotopologues() -> None:
+    # CCl4's base peak is M+2 (one 37Cl), not the all-35Cl peak.
+    r = isotope_distribution("CCl4", grouping="exact", limit=4)
+    assert r["base_peak"]["nominal"] == 154
+    assert _rel(r)[152] == pytest.approx(78.1, abs=1.0)
+
+
+def test_isotope_label_shifts_pattern() -> None:
+    # Explicit D pins deuterium: D2O base peak sits at nominal 20.
+    r = isotope_distribution("D2O")
+    assert r["base_peak"]["nominal"] == 20
+
+
+def test_isotope_no_natural_abundance_element() -> None:
+    # Tc has no natural isotopes; falls back to the most stable (Tc-98).
+    r = isotope_distribution("Tc")
+    assert r["base_peak"]["nominal"] == 98
+
+
+def test_isotope_threshold_and_limit() -> None:
+    full = isotope_distribution("CHCl3", threshold=0.0, limit=100)
+    trimmed = isotope_distribution("CHCl3", threshold=5.0, limit=3)
+    assert len(trimmed["peaks"]) <= 3
+    assert all(p["relative"] >= 5.0 for p in trimmed["peaks"])
+    assert len(full["peaks"]) > len(trimmed["peaks"])
+
+
+def test_isotope_unknown_element_raises() -> None:
+    with pytest.raises(ValueError, match="no isotope data for element 'Xx'"):
+        isotope_distribution("Xx2")
