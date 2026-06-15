@@ -18,6 +18,7 @@ from functools import lru_cache
 from importlib.resources import as_file, files
 from typing import Literal, Protocol
 
+from . import cache, remote
 from .naming import FormulaError, hill_formula, normalize_name
 
 Direction = Literal["auto", "name", "formula"]
@@ -152,8 +153,80 @@ class BundledSource:
         return source_license()
 
 
-# Lookup order: bundled subset -> (later) user cache -> (later) online fallback.
-SOURCES: list[Source] = [BundledSource()]
+class CacheSource:
+    """Tier 2: the writable user-dir cache (TODO 1.4.2).
+
+    Consulted after the bundled subset and before any network call; holds records
+    the online fallback (Tier 3) wrote on earlier misses. The cache mixes sources,
+    so :meth:`source_license` reports the provenance of the most recent hit served
+    on this instance -- read by :func:`find_compound` right after a hit.
+    """
+
+    label = "cache"
+
+    def __init__(self) -> None:
+        self._last: tuple[str, str] = ("", "")
+
+    def by_name(self, name: str) -> list[dict]:
+        matches, src, lic = cache.lookup_formula(name)
+        self._last = (src, lic)
+        return matches
+
+    def by_formula(self, formula: str, limit: int) -> list[dict]:
+        matches, src, lic = cache.lookup_names(formula, limit)
+        self._last = (src, lic)
+        return matches
+
+    def source_license(self) -> tuple[str, str]:
+        return self._last
+
+
+class RemoteSource:
+    """Tier 3: the opt-in online fallback (TODO 1.4.3).
+
+    On a miss in Tiers 1+2, fetches the record from the live database
+    (:mod:`mcp_molecules.remote`, Wikidata), writes any hit into the Tier-2 cache,
+    and returns it. Network is opt-in and fail-soft: when disabled or offline the
+    fetchers return ``[]`` and lookups degrade to "not found". A genuine empty
+    result is remembered in the negative cache (with a TTL) so repeated misses do
+    not re-query; network errors are not, so a flaky connection retries later.
+    """
+
+    label = "remote"
+
+    def by_name(self, name: str) -> list[dict]:
+        if not remote.online_enabled():
+            return []
+        key = normalize_name(name)
+        if cache.is_negative(key, "name"):
+            return []
+        records = remote.wikidata_by_name(name)
+        if not records:
+            cache.remember_miss(key, "name")
+            return []
+        cache.store(records, remote.SOURCE, remote.LICENSE)
+        return [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]
+
+    def by_formula(self, formula: str, limit: int) -> list[dict]:
+        if not remote.online_enabled():
+            return []
+        key = cache.formula_key(formula)
+        if cache.is_negative(key, "formula"):
+            return []
+        records = remote.wikidata_by_formula(formula, limit)
+        if not records:
+            cache.remember_miss(key, "formula")
+            return []
+        cache.store(records, remote.SOURCE, remote.LICENSE)
+        out = [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]
+        return out[:limit]
+
+    def source_license(self) -> tuple[str, str]:
+        return remote.SOURCE, remote.LICENSE
+
+
+# Lookup order: bundled subset -> writable user cache -> opt-in online fallback.
+SOURCES: list[Source] = [BundledSource(), CacheSource(), RemoteSource()]
 
 
 def _directions(query: str, by: Direction) -> tuple[str, ...]:

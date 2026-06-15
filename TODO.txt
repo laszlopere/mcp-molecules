@@ -108,13 +108,25 @@ Keep every item very short (1-5 sentences).
                   DONE: Source protocol + BundledSource + find_compound in
                   names.py (auto name/formula routing with fallback); exposed via
                   the find_chemical_compound MCP tool.
-        [ ] 1.4.2 Search the cache databases (Tier 2, the writable user-dir
+        [x] 1.4.2 Search the cache databases (Tier 2, the writable user-dir
                   store from 1.1.4). Consulted after the bundled subset and
                   before any network call; holds records fetched in 1.4.3.
-        [ ] 1.4.3 Fetch records from the remote databases (Tier 3, online
+                  DONE: src/mcp_molecules/cache.py -- writable SQLite at
+                  $MCP_MOLECULES_CACHE_DB or $XDG_DATA_HOME/mcp-molecules/
+                  names_cache.db, created lazily on first write (pure reads of a
+                  missing cache are a no-op). Bundled-mirror schema + per-row
+                  source/license (cache mixes sources) + negcache table. Wired as
+                  CacheSource in names.py SOURCES, between bundled and remote.
+        [x] 1.4.3 Fetch records from the remote databases (Tier 3, online
                   fallback per item 2) on a miss in 1.4.1+1.4.2. Opt-in network,
                   fail soft to "not found" when offline, and write what comes
                   back into the Tier-2 cache (1.4.2).
+                  DONE: RemoteSource in names.py -> remote.py (item 2.2). Network
+                  opt-in via $MCP_MOLECULES_ONLINE; offline/errors degrade to []
+                  (no raise). Hits are written to the Tier-2 cache; genuine "not
+                  found" goes to the negcache (TTL, $MCP_MOLECULES_NEGCACHE_TTL,
+                  default 1 week) so misses don't re-query; network errors are
+                  NOT remembered, so a flaky link retries later.
 
 [ ] 2 Per-request download of a chemical database record (online fallback).
       On a miss in the pre-fetched cache (item 3), query the live database(s)
@@ -125,7 +137,7 @@ Keep every item very short (1-5 sentences).
             formula -> /compound/fastformula/{formula}/cids/JSON; partial ->
             /autocomplete/compound/{prefix}/json. Resolves trivial + systematic
             names + CAS numbers. Reliable; rate limit 5 req/s, 400 req/min.
-    [ ] 2.2 Wikidata -- CC0 1.0 (public domain, no attribution obligation).
+    [x] 2.2 Wikidata -- CC0 1.0 (public domain, no attribution obligation).
             A single-record lookup is light, so the bulk-extraction flakiness
             from 1.2.1 mostly does not bite here. name -> entity via the API
             (action=wbsearchentities&search={name}&language=en&type=item), then
@@ -133,6 +145,12 @@ Keep every item very short (1-5 sentences).
             props=claims|labels). formula -> name via SPARQL (?item wdt:P274
             "{hill}"; rdfs:label @en). Normalize P274 through hill_formula; send
             a descriptive User-Agent (WMF policy).
+            DONE: src/mcp_molecules/remote.py. wikidata_by_name uses
+            wbsearchentities -> wbgetentities (props=claims|labels|aliases),
+            keeping only candidates whose en label/alias normalizes to the query
+            and that carry P274. wikidata_by_formula uses SPARQL on the Hill key.
+            P274 normalized via hill_formula (raw NFKC fallback); descriptive UA;
+            fail-soft _get_json (returns None on any timeout/HTTP/parse error).
 
 [ ] 3 Pre-fetched cache databases (bundled + user cache).
       Small SQLite stores read first, before any network call. Bundled subset
