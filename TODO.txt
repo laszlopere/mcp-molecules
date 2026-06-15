@@ -1,0 +1,84 @@
+mcp-molecules TODO
+==================
+
+Format:
+    [ ] N      top-level item (open)
+    [x] N      top-level item (done)
+        [ ] N.M     sub-item
+            [ ] N.M.K   sub-sub-item
+Keep every item very short (1-5 sentences).
+
+
+[ ] 0 Molecular weight calculator updates
+    [ ] 0.1 Accept Unicode subscript digits (U+2080-2089) in formulae in
+            addition to normal ASCII numbers, e.g. parse "H₂O" the same as
+            "H2O". Normalize subscripts to ASCII before parsing.
+
+[ ] 1 Molecule name database tool (name -> formula and formula -> name)
+    [ ] 1.1 Design the storage format. The dataset is large (millions of
+            names; many aliases per compound), so a flat CSV is a poor fit
+            for fast lookups. Decide on an efficient, bundleable store that
+            supports both directions (name -> formula, formula -> name) and
+            ships inside the package. Evaluate options before collecting data.
+        [ ] 1.1.1 Bundled SQLite (recommended candidate): single file, no
+                  deps (stdlib sqlite3), indexed name and formula columns,
+                  read-only at runtime. Consider FTS5 for fuzzy/partial name
+                  search. Check on-disk size for the full dataset.
+        [ ] 1.1.2 Alternatives to weigh: compressed columnar (Parquet) for
+                  size, on-disk key-value (dbm/LMDB), or a prebuilt sorted +
+                  mmap'd index. Compare size, lookup speed, build complexity,
+                  and zero-dependency installs.
+        [ ] 1.1.3 Schema: normalize names (lowercase, strip annotations like
+                  "(9CI)"), store canonical name + aliases -> formula, keep
+                  source/license tag per row. formula -> name returns the
+                  canonical (preferred) name. Decide what to bundle vs build.
+        [ ] 1.1.4 Keep each source in a separate SQLite file (one DB per
+                  source), so the auto-downloader (1.3) can add/update sources
+                  independently and query layers them. Support loading DB
+                  files from the user's home (e.g. ~/.local/share or a
+                  configurable dir), not only the bundled package location.
+
+    [ ] 1.2 Shipped dataset (bundled with the MCP server): a curated,
+            size-bounded subset included in the package so the tool works
+            fully offline with zero setup. Decide subset criteria and a max
+            on-disk size budget for the wheel. Source = Wikidata only for now.
+        [ ] 1.2.1 Wikidata -- CC0 1.0 (public domain), no obligations. P274
+                  (formula) + English label/aliases; ~1.43M items have P274.
+                  Query SPARQL (query.wikidata.org/sparql) or JSON dump; key
+                  on P274, not class Q11173. Must normalize Unicode subscript
+                  digits (U+2080-2089) -> ASCII for our parser.
+
+    [ ] 1.3 Auto-download dataset (MCP server fetches automatically): an
+            optional larger/full dataset pulled on demand into a user cache
+            dir. Needs source URL(s), integrity/version check, graceful
+            offline fallback to the shipped set (1.2), and preserved
+            attribution. Keep network access explicit/opt-in. Candidate
+            sources below were license-checked; only use SAFE ones.
+
+            SAFE TO REDISTRIBUTE (public domain / GPL-compatible):
+        [ ] 1.3.1 PubChem (NCBI/NLM) -- public domain (US gov). Largest set
+                  (~119M compounds). Names: CID-Synonym-filtered.gz,
+                  CID-Title.gz, CID-IUPAC.gz (FTP /pubchem/Compound/Extras/).
+                  Formula not in Extras: extract PUBCHEM_MOLECULAR_FORMULA
+                  from CURRENT-Full/SDF and join on CID, or use PUG-REST for
+                  a curated subset. Acknowledgment requested, not required.
+        [ ] 1.3.2 EPA DSSTox / CompTox -- US public domain. >1M chemicals
+                  with preferred name, synonyms, formula, SMILES, InChI.
+                  Bulk CSV/SDF on epa.figshare.com. Best bundleable bulk set.
+        [ ] 1.3.3 ChEBI (EBI) -- CC BY 4.0 (attribution). ~195k curated
+                  entries, high quality, name + formula + synonyms. Bulk
+                  SDF/OBO/OWL at ftp.ebi.ac.uk/pub/databases/chebi/.
+        [ ] 1.3.4 ChEMBL (EBI) -- CC BY-SA 3.0 (attribution + share-alike).
+                  ~2.4M compounds. OK but the data subset stays CC BY-SA
+                  (cannot relicense); keep it clearly labeled if used.
+
+            GENERATE INSTEAD OF SHIP (tools, no DB to redistribute):
+        [ ] 1.3.5 OPSIN (MIT) parses systematic IUPAC names -> SMILES;
+                  RDKit (BSD) CalcMolFormula -> formula. Runtime fallback for
+                  systematic names; does NOT cover trivial names (aspirin,
+                  caffeine) -- those still need a lookup table.
+
+            DO NOT BUNDLE (license-incompatible / unavailable):
+        [ ] 1.3.6 Avoid: DrugBank full (CC BY-NC / proprietary), NIST
+                  Chemistry WebBook (SRD, all rights reserved), CAS Common
+                  Chemistry (CC BY-NC), ChemIDplus (retired 2022 -> PubChem).
