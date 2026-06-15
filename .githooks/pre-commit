@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Mirror the CI gate locally: format staged Python files and lint them before
+# the commit lands, so unformatted code can't reach CI.
+# Enable with:  git config core.hooksPath .githooks
+set -euo pipefail
+
+# Staged Python files (Added/Copied/Modified/Renamed), NUL-delimited for safety.
+mapfile -d '' -t files < <(
+    git diff --cached --name-only --diff-filter=ACMR -z -- '*.py'
+)
+[ ${#files[@]} -eq 0 ] && exit 0
+
+# Auto-format, then re-stage anything ruff changed.
+uv run ruff format -- "${files[@]}"
+git add -- "${files[@]}"
+
+# Lint with the same ruleset CI uses; block the commit on any remaining issue.
+if ! uv run ruff check -- "${files[@]}"; then
+    echo "pre-commit: ruff check failed -- fix the issues above and re-commit." >&2
+    exit 1
+fi

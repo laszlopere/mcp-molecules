@@ -64,8 +64,16 @@ claude mcp add molecules -- mcp-molecules
 uv sync --all-extras
 uv run mcp-molecules        # run the server over stdio
 uv run pytest               # tests
+uv run ruff format .        # format
 uv run ruff check .         # lint
 uv run mypy                 # type-check
+```
+
+A pre-commit hook in `.githooks/` auto-formats and lints staged Python files
+so the CI format gate can't be missed. Enable it once per clone:
+
+```sh
+git config core.hooksPath .githooks
 ```
 
 ## Data
