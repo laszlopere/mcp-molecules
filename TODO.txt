@@ -94,3 +94,24 @@ Keep every item very short (1-5 sentences).
         [ ] 1.3.5 Avoid: DrugBank full (CC BY-NC / proprietary), NIST
                   Chemistry WebBook (SRD, all rights reserved), CAS Common
                   Chemistry (CC BY-NC), ChemIDplus (retired 2022 -> PubChem).
+
+[ ] 2 Per-request download of a chemical database record (online fallback).
+      On a miss in the pre-fetched cache (item 3), query the live database(s)
+      per request, return the record, and cache it. Opt-in network; graceful
+      offline fallback; negative caching with a TTL. See databases.txt (Tier 3).
+    [ ] 2.1 PubChem (NCBI/NLM) -- public domain. Live PUG-REST lookup:
+            name -> /compound/name/{name}/property/MolecularFormula,Title/JSON;
+            formula -> /compound/fastformula/{formula}/cids/JSON; partial ->
+            /autocomplete/compound/{prefix}/json. Resolves trivial + systematic
+            names + CAS numbers. Reliable; rate limit 5 req/s, 400 req/min.
+
+[ ] 3 Pre-fetched cache databases (bundled + user cache).
+      Small SQLite stores read first, before any network call. Bundled subset
+      ships in the wheel (read-only); fetched records (item 2) go to a writable
+      user-dir cache. See databases.txt (Tier 1 + Tier 2).
+    [ ] 3.1 PubChem (NCBI/NLM) -- public domain. Bundled everyday subset BUILT:
+            src/mcp_molecules/data/names_pubchem.db -- PubChem CIDs 1..100k,
+            synonym-count rank>=50 + clean-name heuristic, 6,943 compounds,
+            3.3 MB. Reproducible: fetch_pubchem -> curate -> build_namedb.
+            NOT YET STAGED to the git repo (gitignored as a build artifact);
+            decide how it reaches the wheel (commit the artifact, or build in CI).
