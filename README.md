@@ -18,9 +18,8 @@ formula, looks every element up in the NIST Atomic Weights and Isotopic
 Compositions database, and returns the molar mass — offline, deterministic, and
 with the option to carry the measurement uncertainty along with the answer.
 
-> **Status: scaffold.** The interface is defined and the NIST data is bundled,
-> but the calculation itself is not implemented yet. `molecular_weight_calculator`
-> currently raises "not implemented".
+The calculation is a faithful port of the C [`mwc`](https://github.com/laszlopere)
+tool and produces byte-for-byte identical results.
 
 ## What it gives you
 

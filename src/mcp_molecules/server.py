@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 László Pere
 
-"""FastMCP application for mcp-molecules. All tools register on this app.
+"""FastMCP application for mcp-molecules. All tools register on this app."""
 
-This module is currently a scaffold: the ``molecular_weight_calculator`` tool
-exposes its full interface but the calculation itself is not yet implemented.
-"""
-
+import math
 import platform
 from importlib.metadata import version
 from typing import Annotated, Literal
@@ -15,6 +12,17 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from mcp_molecules import __version__
+from mcp_molecules.formula import parse_formula
+from mcp_molecules.weights import load_weights
+
+# Output unit -> (scale factor from g/mol, default decimal places).
+_UNITS: dict[str, tuple[float, int]] = {
+    "g/mol": (1.0, 2),
+    "kg/mol": (1e-3, 5),
+    "Da": (1.0, 2),
+    "u": (1.0, 2),
+    "kDa": (1e-3, 5),
+}
 
 mcp = FastMCP(
     "mcp-molecules",
@@ -96,8 +104,65 @@ def molecular_weight_calculator(
     (``monoisotopic``), and/or reports percent composition by mass
     (``composition``).
 
-    NOTE: implementation is pending — this scaffold defines the interface only.
+    Raises ``ValueError`` for an unparseable formula or an unknown element.
     """
-    raise NotImplementedError(
-        "molecular_weight_calculator is not implemented yet; this is a scaffold."
-    )
+    tally = parse_formula(formula)
+    weights = load_weights(monoisotopic)
+
+    mw = 0.0
+    variance = 0.0
+    for symbol, count in tally:
+        entry = weights.get(symbol)
+        if entry is None:
+            raise ValueError(f"unknown element '{symbol}'")
+        weight, sigma = entry
+        mw += weight * count
+        variance += (count * sigma) ** 2
+    sigma_mw = math.sqrt(variance)
+
+    factor, decimals = _UNITS[unit]
+    value = mw * factor
+    display_sigma = sigma_mw * factor
+
+    # Monoisotopic masses shift in the 4th decimal; widen so the shift shows.
+    if monoisotopic and decimals < 4:
+        decimals = 4
+    # Widen until the first significant digit of the uncertainty is visible.
+    if uncertainty and display_sigma > 0.0:
+        need = math.ceil(-math.log10(display_sigma))
+        if need > decimals:
+            decimals = need
+
+    if uncertainty:
+        formatted = f"{value:.{decimals}f} ± {display_sigma:.{decimals}f} {unit}"
+    else:
+        formatted = f"{value:.{decimals}f} {unit}"
+
+    result: dict = {
+        "formula": formula,
+        "unit": unit,
+        "weight": value,
+        "uncertainty": display_sigma if uncertainty else None,
+        "monoisotopic": monoisotopic,
+        "atoms": {symbol: count for symbol, count in tally},
+        "formatted": formatted,
+    }
+
+    if composition:
+        # Percent composition is reported by mass in g/mol, independent of unit.
+        rows = []
+        for symbol, count in tally:
+            weight, _sigma = weights[symbol]
+            subtotal = weight * count
+            rows.append(
+                {
+                    "element": symbol,
+                    "count": count,
+                    "subtotal_g_per_mol": subtotal,
+                    "percent": (100.0 * subtotal / mw) if mw else 0.0,
+                }
+            )
+        result["composition"] = rows
+        result["total_weight_g_per_mol"] = mw
+
+    return result

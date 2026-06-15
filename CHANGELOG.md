@@ -14,8 +14,11 @@ Initial scaffold.
   hatchling build, FastMCP server, CI + PyPI Trusted Publishing workflows,
   GitHub Sponsors and Glama configuration.
 - `info` tool — server availability / version / environment health check.
-- `molecular_weight_calculator` tool — interface only (formula, unit,
-  uncertainty, monoisotopic, composition). Calculation is not yet implemented.
+- `molecular_weight_calculator` tool — molar-mass calculation ported from the C
+  `mwc` tool (byte-for-byte parity): recursive-descent formula parser with nested
+  groups and isotope labels (`D`, `T`), unit selection (g/mol, kg/mol, Da, u,
+  kDa), propagated NIST uncertainties, monoisotopic masses, and percent
+  composition by mass.
 - Bundled NIST Atomic Weights and Isotopic Compositions data
   (`nist_atomic_weights.json`) as package data for the forthcoming
   implementation.
