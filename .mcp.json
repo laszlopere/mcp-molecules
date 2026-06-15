@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "molecules": {
+      "type": "stdio",
+      "command": "mcp-molecules",
+      "args": [],
+      "env": {}
+    }
+  }
+}
