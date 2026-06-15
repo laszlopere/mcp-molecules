@@ -30,11 +30,6 @@ Funding = "https://github.com/sponsors/laszlopere"
 [project.scripts]
 mcp-molecules = "mcp_molecules.__main__:main"
 
-[tool.hatch.build]
-# The bundled name DB is a generated build artifact (gitignored); include it in
-# the wheel anyway so the shipped subset travels with the package.
-artifacts = ["src/mcp_molecules/data/*.db"]
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_molecules"]
 

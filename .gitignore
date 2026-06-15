@@ -20,10 +20,12 @@ venv/
 .coverage
 htmlcov/
 
-# Build artifacts: raw datasets fetched by tools/ and the generated databases
-# (the bundled name DB is built via tools/build_namedb.py, not version-tracked)
+# Build artifacts: raw datasets fetched by tools/ and generated scratch/cache DBs
 *.jsonl
 *.db
+# ...except the bundled name subset, which IS version-tracked and ships in the
+# wheel (regenerate with tools/build_namedb.py, then commit the result).
+!src/mcp_molecules/data/names_pubchem.db
 
 # Editors
 .idea/

@@ -156,9 +156,10 @@ Keep every item very short (1-5 sentences).
       Small SQLite stores read first, before any network call. Bundled subset
       ships in the wheel (read-only); fetched records (item 2) go to a writable
       user-dir cache. See databases.txt (Tier 1 + Tier 2).
-    [ ] 3.1 PubChem (NCBI/NLM) -- public domain. Bundled everyday subset BUILT:
+    [x] 3.1 PubChem (NCBI/NLM) -- public domain. Bundled everyday subset BUILT:
             src/mcp_molecules/data/names_pubchem.db -- PubChem CIDs 1..100k,
             synonym-count rank>=50 + clean-name heuristic, 6,943 compounds,
             3.3 MB. Reproducible: fetch_pubchem -> curate -> build_namedb.
-            NOT YET STAGED to the git repo (gitignored as a build artifact);
-            decide how it reaches the wheel (commit the artifact, or build in CI).
+            DONE: committed to the repo (a .gitignore negation tracks just this
+            .db while *.db stays ignored), so it is version-tracked and hatchling
+            ships it in the wheel by default. Regenerate then commit on refresh.
