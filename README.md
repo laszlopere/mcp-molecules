@@ -36,6 +36,14 @@ More molecule-oriented tools are planned.
   - `monoisotopic` — use the most abundant isotope of each element
     (mass-spectrometry monoisotopic mass) instead of the standard atomic weight.
   - `composition` — return the per-element percent composition by mass.
+- **`find_chemical_compound`** — look up a compound by name or molecular
+  formula against a bundled offline database (a PubChem subset). Parameters:
+  - `query` — a name (`aspirin`, `acetylsalicylic acid`) or a formula
+    (`H2O`, `C9H8O4`); formulae are matched in the Hill system.
+  - `by` — `auto` *(default)* guesses name vs. formula and falls back to the
+    other direction on a miss; `name` or `formula` pin the direction.
+  - `limit` — maximum compounds to return for a formula lookup (isomers share
+    a formula), preferred name first.
 - **`info`** — server availability / version / environment health check.
 
 ## Install

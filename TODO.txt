@@ -97,13 +97,17 @@ Keep every item very short (1-5 sentences).
                   Chemistry WebBook (SRD, all rights reserved), CAS Common
                   Chemistry (CC BY-NC), ChemIDplus (retired 2022 -> PubChem).
 
-    [ ] 1.4 Tool implementation -- the runtime query layer behind the MCP tools
-            name_to_formula / formula_to_name. They currently read only the
-            single bundled DB (src/mcp_molecules/names.py); wire them up to the
-            full tiered, multi-source design.
-        [ ] 1.4.1 Search the local, package-shipped databases (Tier 1, the
+    [ ] 1.4 Tool implementation -- the layered query layer behind the MCP tool
+            find_chemical_compound (the bidirectional lookup that replaced the
+            directional name_to_formula / formula_to_name). A Source chain in
+            src/mcp_molecules/names.py is searched in tier order; only Tier 1 is
+            wired so far.
+        [x] 1.4.1 Search the local, package-shipped databases (Tier 1, the
                   bundled subset from 1.2). Read-only; the first tier hit in the
                   lookup order. This is the always-available offline path.
+                  DONE: Source protocol + BundledSource + find_compound in
+                  names.py (auto name/formula routing with fallback); exposed via
+                  the find_chemical_compound MCP tool.
         [ ] 1.4.2 Search the cache databases (Tier 2, the writable user-dir
                   store from 1.1.4). Consulted after the bundled subset and
                   before any network call; holds records fetched in 1.4.3.

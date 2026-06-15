@@ -131,8 +131,12 @@ TOOLS ALREADY CREATED
 Runtime (shipped) pieces:
   src/mcp_molecules/naming.py  -- normalize_name + hill_formula (shared by build
                                   and query).
-  src/mcp_molecules/names.py   -- read-only lookups over the bundled .db.
-  src/mcp_molecules/server.py  -- MCP tools name_to_formula, formula_to_name.
+  src/mcp_molecules/names.py   -- read-only lookups over the bundled .db, plus
+                                  the layered Source chain + find_compound (the
+                                  tiered query; Tier 1 / BundledSource only so far).
+  src/mcp_molecules/server.py  -- MCP tool find_chemical_compound (bidirectional
+                                  name<->formula; replaced name_to_formula /
+                                  formula_to_name).
 
 
 FILTER ALREADY IMPLEMENTED

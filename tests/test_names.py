@@ -139,3 +139,40 @@ def test_unparseable_formula_raw_fallback(db) -> None:
 def test_missing_name_returns_empty(db) -> None:
     assert names.lookup_formula("unobtanium") == []
     assert names.lookup_names("Xe99") == []
+
+
+# --- layered find_compound -------------------------------------------------
+
+
+def test_directions_routing() -> None:
+    # auto: parseable formula tried as formula first, else as name first.
+    assert names._directions("C6H12O6", "auto") == ("formula", "name")
+    assert names._directions("grape sugar", "auto") == ("name", "formula")
+    # explicit overrides pin a single direction.
+    assert names._directions("water", "name") == ("name",)
+    assert names._directions("H2O", "formula") == ("formula",)
+
+
+def test_find_compound_auto_name(db) -> None:
+    r = names.find_compound("grape sugar")
+    assert r["interpreted_as"] == "name"
+    assert r["matches"][0] == {"name": "D-glucose", "formula": "C6H12O6"}
+    assert r["source"] == "wikidata"
+
+
+def test_find_compound_auto_formula(db) -> None:
+    r = names.find_compound("C₆H₁₂O₆")
+    assert r["interpreted_as"] == "formula"
+    assert r["matches"][0] == {"name": "D-glucose", "formula": "C6H12O6"}
+
+
+def test_find_compound_override(db) -> None:
+    # "water" is a name; forcing a formula reading finds nothing.
+    assert names.find_compound("water", by="formula")["matches"] == []
+    assert names.find_compound("water", by="name")["matches"][0]["formula"] == "H2O"
+
+
+def test_find_compound_not_found(db) -> None:
+    r = names.find_compound("unobtanium")
+    assert r["matches"] == []
+    assert r["source"] == ""

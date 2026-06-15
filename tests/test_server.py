@@ -11,7 +11,12 @@ import asyncio
 import pytest
 
 from mcp_molecules.formula import FormulaError, parse_formula
-from mcp_molecules.server import info, mcp, molecular_weight_calculator
+from mcp_molecules.server import (
+    find_chemical_compound,
+    info,
+    mcp,
+    molecular_weight_calculator,
+)
 
 
 def test_info_reports_name() -> None:
@@ -24,6 +29,30 @@ def test_tools_registered() -> None:
     names = {tool.name for tool in asyncio.run(mcp.list_tools())}
     assert "info" in names
     assert "molecular_weight_calculator" in names
+    assert "find_chemical_compound" in names
+    # The directional tools were folded into find_chemical_compound.
+    assert "name_to_formula" not in names
+    assert "formula_to_name" not in names
+
+
+# --- find_chemical_compound (end-to-end over the bundled DB) ----------------
+
+
+def test_find_chemical_compound_by_name() -> None:
+    r = find_chemical_compound("aspirin")
+    assert r["interpreted_as"] == "name"
+    assert r["matches"][0]["formula"] == "C9H8O4"
+
+
+def test_find_chemical_compound_by_formula() -> None:
+    r = find_chemical_compound("C9H8O4")
+    assert r["interpreted_as"] == "formula"
+    assert any(m["name"].lower() == "aspirin" for m in r["matches"])
+
+
+def test_find_chemical_compound_not_found() -> None:
+    with pytest.raises(ValueError, match="no chemical compound found"):
+        find_chemical_compound("zzznotacompoundzzz")
 
 
 # --- formula parser --------------------------------------------------------

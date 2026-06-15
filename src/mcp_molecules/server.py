@@ -13,7 +13,7 @@ from pydantic import Field
 
 from mcp_molecules import __version__
 from mcp_molecules.formula import parse_formula
-from mcp_molecules.names import lookup_formula, lookup_names, source_license
+from mcp_molecules.names import find_compound
 from mcp_molecules.weights import load_weights
 
 # Output unit -> (scale factor from g/mol, default decimal places).
@@ -170,80 +170,55 @@ def molecular_weight_calculator(
 
 
 @mcp.tool()
-def name_to_formula(
-    name: Annotated[
+def find_chemical_compound(
+    query: Annotated[
         str,
         Field(
             description=(
-                "Compound name to look up. Matches the canonical name or any "
-                "alias, case-insensitively, ignoring trailing registry "
-                "annotations like '(9CI)' or '(USAN)'. Examples: 'aspirin', "
-                "'caffeine', 'acetylsalicylic acid'."
+                "Compound to look up -- either a name or a molecular formula. "
+                "Names match the canonical name or any alias, case-insensitively, "
+                "ignoring trailing registry annotations like '(9CI)' or '(USAN)'. "
+                "Formulae are canonicalized to the Hill system, so 'C6H12O6', "
+                "'O6C6H12', and 'C₆H₁₂O₆' are equivalent. Examples: 'aspirin', "
+                "'acetylsalicylic acid', 'H2O', 'C9H8O4'."
             )
         ),
     ],
-) -> dict:
-    """Look up the molecular formula(e) for a compound name.
-
-    Searches the bundled name<->formula database (currently a Wikidata subset of
-    compounds with an English Wikipedia article). Returns every matching
-    compound; a name shared by several compounds yields multiple matches.
-
-    Raises ``ValueError`` if the name is not found.
-    """
-    matches = lookup_formula(name)
-    if not matches:
-        raise ValueError(f"no compound found for name {name!r}")
-    source, license_ = source_license()
-    return {
-        "query": name,
-        "matches": matches,
-        "formula": matches[0]["formula"],
-        "source": source,
-        "license": license_,
-    }
-
-
-@mcp.tool()
-def formula_to_name(
-    formula: Annotated[
-        str,
+    by: Annotated[
+        Literal["auto", "name", "formula"],
         Field(
             description=(
-                "Molecular formula to look up. Canonicalized to the Hill system "
-                "before matching, so 'C6H12O6', 'O6C6H12', and 'C₆H₁₂O₆' are "
-                "equivalent. Examples: 'H2O', 'C9H8O4', 'C8H10N4O2'."
+                "How to read the query. 'auto' (default) treats a parseable "
+                "formula as a formula and anything else as a name, falling back "
+                "to the other direction on a miss. 'name' or 'formula' pin it."
             )
         ),
-    ],
+    ] = "auto",
     limit: Annotated[
         int,
         Field(
             description=(
-                "Maximum number of compounds to return. Isomers share a formula; "
-                "results are ordered with the most notable (preferred) name first."
+                "Maximum number of compounds to return for a formula lookup. "
+                "Isomers share a formula; results are ordered with the most "
+                "notable (preferred) name first."
             ),
             ge=1,
             le=50,
         ),
     ] = 5,
 ) -> dict:
-    """Look up compound name(s) for a molecular formula.
+    """Look up a chemical compound by name or molecular formula.
 
-    A formula is one-to-many (isomers share it), so this returns up to ``limit``
-    compounds ordered with the preferred name first, plus that name as
-    ``preferred_name``. Searches the bundled name<->formula database.
+    Searches the bundled name<->formula database (a PubChem subset). A name
+    resolves to its molecular formula(e); a formula resolves to the compound
+    name(s) sharing it (isomers), ordered with the preferred name first. The
+    direction is chosen by ``by``. Returns the ``query``, how it was interpreted
+    (``interpreted_as``), the ``matches`` (each ``{"name", "formula"}``, the
+    preferred result first), and the dataset ``source`` / ``license``.
 
-    Raises ``ValueError`` if the formula matches no compound.
+    Raises ``ValueError`` if nothing matches.
     """
-    matches = lookup_names(formula, limit)
-    if not matches:
-        raise ValueError(f"no compound found for formula {formula!r}")
-    source, license_ = source_license()
-    return {
-        "query": formula,
-        "preferred_name": matches[0]["name"],
-        "matches": matches,
-        "source": source,
-        "license": license_,
-    }
+    result = find_compound(query, by, limit)
+    if not result["matches"]:
+        raise ValueError(f"no chemical compound found for {query!r}")
+    return result
