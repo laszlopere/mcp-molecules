@@ -168,9 +168,10 @@ Keep every item very short (1-5 sentences).
       computations derivable from the parsed formula + bundled NIST atomic data,
       same ethos as the existing molecular_weight_calculator. No structure/
       connectivity needed.
-    [x] 4.1 Isotope distribution: full isotopic pattern (M, M+1, M+2 ...
-            relative intensities), not just the monoisotopic mass. The key
-            output for mass-spec comparison. Built from NIST isotope abundances.
+    [x] 4.1 Isotope distribution (isotope_distribution tool): full isotopic
+            pattern (M, M+1, M+2 ... relative intensities), not just the
+            monoisotopic mass. The key output for mass-spec comparison. Built
+            from NIST isotope abundances.
             DONE: src/mcp_molecules/isotopes.py -- per-element (mass, abundance)
             polynomials raised to the atom count by binary exponentiation and
             convolved across elements, with pruning to stay bounded. Explicit D/T
@@ -179,6 +180,27 @@ Keep every item very short (1-5 sentences).
             'exact' (resolved isotopologues); threshold/limit trim peaks. Also
             returns monoisotopic + average mass. Exposed as the
             isotope_distribution MCP tool; tests in tests/test_server.py.
+            Example -- isotope_distribution("C8H10N4O2")  (caffeine):
+                {
+                  "formula": "C8H10N4O2",
+                  "charge": 0,
+                  "grouping": "unit",
+                  "monoisotopic_mass": 194.08038,
+                  "average_mass": 194.19092,
+                  "monoisotopic_mz": null,
+                  "base_peak": {
+                    "nominal": 194, "mass": 194.08038,
+                    "relative": 100.0, "abundance": 0.8988
+                  },
+                  "peaks": [
+                    {"nominal": 194, "mass": 194.08038, "relative": 100.0,  "abundance": 0.8988},
+                    {"nominal": 195, "mass": 195.08287, "relative": 10.305, "abundance": 0.0926},
+                    {"nominal": 196, "mass": 196.08497, "relative": 0.892,  "abundance": 0.0080}
+                  ],
+                  "formatted": "194 (100%), 195 (10%), 196 (1%)",
+                  "source": "NIST Atomic Weights and Isotopic Compositions",
+                  "license": "..."
+                }
     [ ] 4.2 Adduct / charge-state m/z: report m/z for common ions ([M+H]+,
             [M-H]-, [M+Na]+, multiply-charged) as (M +/- n*1.00728)/n. Pairs
             with 4.1. PARTLY DONE in 4.1: the isotope_distribution tool's
