@@ -97,11 +97,18 @@ Keep every item very short (1-5 sentences).
                   (rank); CID proxy is rough (e.g. C6H12O6 -> "Hexose") --
                   proper notability rank is a later enhancement. Builder
                   tools/build_namedb.py (build), prebuilt .db shipped (bundle).
-        [ ] 1.1.4 Keep each source in a separate SQLite file (one DB per
+        [x] 1.1.4 Keep each source in a separate SQLite file (one DB per
                   source), so the local cache (item 3) can add/update sources
                   independently and the query layers them. Support loading DB
                   files from the user's home (e.g. ~/.local/share or a
                   configurable dir), not only the bundled package location.
+                  DONE: realized by the Tier-2 cache (1.4.2) + per-source split
+                  (2.0). cache.py is directory-oriented -- one
+                  names_cache_<source>.db per source under cache_dir()
+                  ($MCP_MOLECULES_CACHE_DIR, else $XDG_DATA_HOME/mcp-molecules),
+                  a user-home configurable location; cache_path/list_sources
+                  discover them and names.CacheSource layers them (first file
+                  with a hit wins, carrying its own provenance).
 
     [ ] 1.2 Shipped pre-fetched cache (bundled partial database): a curated,
             size-bounded subset shipped in the package so common lookups work
