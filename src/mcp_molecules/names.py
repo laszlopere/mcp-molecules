@@ -283,10 +283,10 @@ def find_compound(query: str, by: Direction = "auto", limit: int = 5) -> dict:
     sources in :data:`SOURCES`, returning the first non-empty hit. The result is
     ``{"query", "interpreted_as", "normalized", "matches", "source", "license"}``
     where each match is ``{"name", "formula"}``; ``matches`` is empty if nothing
-    is found. ``normalized`` is the Hill-system key the formula path actually
-    searched on (e.g. ``"O6C6H12"`` -> ``"C6H12O6"``), or ``None`` when the query
-    does not parse as a formula -- so the caller can see what was looked up even
-    on a miss.
+    is found. ``normalized`` is the Hill-system canonicalization of the query
+    (e.g. ``"O6C6H12"`` -> ``"C6H12O6"``) whenever it parses as a formula, or
+    ``None`` otherwise -- it is a standalone property of the input string and
+    does not depend on ``interpreted_as`` or whether anything matched.
     """
     try:
         normalized: str | None = hill_formula(query)
@@ -301,7 +301,7 @@ def find_compound(query: str, by: Direction = "auto", limit: int = 5) -> dict:
                 return {
                     "query": query,
                     "interpreted_as": direction,
-                    "normalized": normalized if direction == "formula" else None,
+                    "normalized": normalized,
                     "matches": hits,
                     "source": src,
                     "license": lic,
@@ -309,7 +309,7 @@ def find_compound(query: str, by: Direction = "auto", limit: int = 5) -> dict:
     return {
         "query": query,
         "interpreted_as": directions[0],
-        "normalized": normalized if directions[0] == "formula" else None,
+        "normalized": normalized,
         "matches": [],
         "source": "",
         "license": "",

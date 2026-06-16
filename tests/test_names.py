@@ -211,11 +211,12 @@ def test_find_compound_normalized_on_reordered_hit(db) -> None:
     assert r["matches"][0]["name"] == "water"
 
 
-def test_find_compound_normalized_null_when_pinned_name(db) -> None:
-    # by="name" never canonicalizes, even for a formula-looking query.
+def test_find_compound_normalized_independent_of_direction(db) -> None:
+    # normalized is a property of the input string, not the lookup direction:
+    # a formula-looking query reports its Hill form even when pinned to "name".
     r = names.find_compound("OH2", by="name")
     assert r["interpreted_as"] == "name"
-    assert r["normalized"] is None
+    assert r["normalized"] == "H2O"
 
 
 def test_find_compound_unparseable_formula_normalized_null(db) -> None:
