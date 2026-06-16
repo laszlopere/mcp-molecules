@@ -329,3 +329,21 @@ Keep every item very short (1-5 sentences).
       need connectivity a bare formula lacks -- these belong to the lookup side
       (items 1-2), not the calculator. OPSIN/RDKit (1.3.4) is the formula<->
       structure bridge if ever needed. Recorded here so we stop reconsidering.
+
+[ ] 7 Input validation and error-handling fixes. Rough edges surfaced by the
+      functional test pass (tests/test_*_functional.py); the tests currently
+      pin the present behavior, so update them when each is fixed.
+    [ ] 7.1 parse_formula rejects any whitespace: " H2O", "H2O ", and "H2 O"
+            all raise FormulaError. Trim leading/trailing whitespace before
+            parsing (decide whether internal spaces stay an error).
+    [ ] 7.2 parse_formula("H0") returns [("H", 0)] instead of erroring. Reject
+            zero atom counts (and confirm explicit "H1" is handled as intended).
+    [ ] 7.3 The bundled name DB indexes some formula strings as name aliases
+            (e.g. "C2H6O" -> Ethanol, "h2o" -> Water), so those queries resolve
+            as interpreted_as="name" rather than "formula". Decide if this is
+            wanted; if not, stop indexing bare formulae as names so formula
+            queries route through the formula path.
+    [ ] 7.4 Investigate concurrent access: when multiple instances of this MCP
+            server run at once, can a race condition corrupt or break the shared
+            Tier-2 cache (writes/negcache) or the per-source SQLite files?
+            Determine the failure modes and what locking/isolation is needed.
