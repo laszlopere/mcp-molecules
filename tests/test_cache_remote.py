@@ -20,52 +20,77 @@ from mcp_molecules import cache, names, remote
 
 
 def test_cache_missing_file_reads_empty() -> None:
-    assert not cache.cache_path().exists()
-    assert cache.lookup_formula("water") == ([], "", "")
-    assert cache.lookup_names("H2O") == ([], "", "")
-    assert cache.is_negative("water", "name") is False
+    assert cache.list_sources() == []
+    assert not cache.cache_path("wikidata").exists()
+    assert cache.lookup_formula("wikidata", "water") == []
+    assert cache.lookup_names("wikidata", "H2O") == []
+    assert cache.is_negative("wikidata", "water", "name") is False
+    assert cache.source_license("wikidata") == ("", "")
     # Pure reads must not create the cache file.
-    assert not cache.cache_path().exists()
+    assert not cache.cache_path("wikidata").exists()
 
 
 def test_cache_store_and_lookup_roundtrip() -> None:
     rec = {"ref": "Q283", "name": "water", "aliases": ["dihydrogen monoxide"], "formulas": ["H2O"]}
     assert cache.store([rec], "wikidata", "CC0-1.0") == 1
-    assert cache.cache_path().exists()
+    assert cache.cache_path("wikidata").exists()
+    # A store wrote one per-source file, discoverable by name.
+    assert cache.list_sources() == ["wikidata"]
+    assert cache.source_license("wikidata") == ("wikidata", "CC0-1.0")
 
-    matches, src, lic = cache.lookup_formula("Dihydrogen Monoxide")  # via alias, normalized
+    matches = cache.lookup_formula("wikidata", "Dihydrogen Monoxide")  # via alias, normalized
     assert matches[0] == {"name": "water", "formula": "H2O"}
-    assert (src, lic) == ("wikidata", "CC0-1.0")
 
-    matches, src, lic = cache.lookup_names("OH2")  # Hill-normalized to H2O
+    matches = cache.lookup_names("wikidata", "OH2")  # Hill-normalized to H2O
     assert matches[0]["name"] == "water"
-    assert src == "wikidata"
 
 
-def test_cache_store_is_idempotent() -> None:
-    rec = {"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}
-    assert cache.store([rec], "wikidata", "CC0-1.0") == 1
-    assert cache.store([rec], "wikidata", "CC0-1.0") == 0  # same source+ref -> skipped
-
-
-def test_negative_cache_ttl(monkeypatch) -> None:
-    cache.remember_miss("unobtanium", "name")
-    assert cache.is_negative("unobtanium", "name") is True
-    assert cache.is_negative("unobtanium", "formula") is False
-    # A zero TTL makes any remembered miss immediately stale.
-    monkeypatch.setenv("MCP_MOLECULES_NEGCACHE_TTL", "0")
-    assert cache.is_negative("unobtanium", "name") is False
-
-
-def test_store_clears_matching_negative() -> None:
-    cache.remember_miss("water", "name")
-    assert cache.is_negative("water", "name") is True
+def test_cache_sources_are_separate_files() -> None:
     cache.store(
         [{"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}],
         "wikidata",
         "CC0-1.0",
     )
-    assert cache.is_negative("water", "name") is False
+    cache.store(
+        [{"ref": "C1", "name": "Water", "aliases": [], "formulas": ["H2O"]}],
+        "pubchem",
+        "public-domain",
+    )
+    assert cache.list_sources() == ["pubchem", "wikidata"]
+    assert cache.cache_path("wikidata").exists()
+    assert cache.cache_path("pubchem").exists()
+    # Each file carries its own provenance; a lookup in one is blind to the other.
+    assert cache.source_license("pubchem") == ("pubchem", "public-domain")
+    assert cache.lookup_formula("pubchem", "water")[0]["name"] == "Water"
+    assert cache.lookup_formula("wikidata", "water")[0]["name"] == "water"
+
+
+def test_cache_store_is_idempotent() -> None:
+    rec = {"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}
+    assert cache.store([rec], "wikidata", "CC0-1.0") == 1
+    assert cache.store([rec], "wikidata", "CC0-1.0") == 0  # same ref -> skipped
+
+
+def test_negative_cache_ttl(monkeypatch) -> None:
+    cache.remember_miss("wikidata", "unobtanium", "name")
+    assert cache.is_negative("wikidata", "unobtanium", "name") is True
+    assert cache.is_negative("wikidata", "unobtanium", "formula") is False
+    # The negcache is per-source: another source's file has not seen the miss.
+    assert cache.is_negative("pubchem", "unobtanium", "name") is False
+    # A zero TTL makes any remembered miss immediately stale.
+    monkeypatch.setenv("MCP_MOLECULES_NEGCACHE_TTL", "0")
+    assert cache.is_negative("wikidata", "unobtanium", "name") is False
+
+
+def test_store_clears_matching_negative() -> None:
+    cache.remember_miss("wikidata", "water", "name")
+    assert cache.is_negative("wikidata", "water", "name") is True
+    cache.store(
+        [{"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}],
+        "wikidata",
+        "CC0-1.0",
+    )
+    assert cache.is_negative("wikidata", "water", "name") is False
 
 
 # --- Tier-3 Wikidata client (mocked HTTP) ----------------------------------
@@ -219,7 +244,7 @@ def test_remote_miss_is_negatively_cached(monkeypatch) -> None:
     monkeypatch.setattr(remote, "_get_json", fake)
     src = names.RemoteSource()
     assert src.by_name("nonesuch") == []
-    assert cache.is_negative("nonesuch", "name") is True
+    assert cache.is_negative(remote.SOURCE, "nonesuch", "name") is True
     before = calls["n"]
     # The remembered miss short-circuits the next lookup -> no further HTTP.
     assert src.by_name("nonesuch") == []

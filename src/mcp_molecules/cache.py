@@ -1,22 +1,28 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 László Pere
 
-"""Tier-2 writable name<->formula cache (TODO 1.4.2 / 3).
+"""Tier-2 writable name<->formula cache, one SQLite file per source (TODO 2.0).
 
-A small SQLite store in the user's data directory that holds records fetched
-on-demand from the online fallback (:mod:`mcp_molecules.remote`, TODO 1.4.3). It
-sits between the bundled subset (Tier 1, read-only) and the network (Tier 3): it
-is read after the bundle and before any HTTP call, and written with whatever the
-network returns so a second lookup of the same compound never hits the wire.
+A set of small SQLite stores in the user's data directory holding records
+fetched on-demand from the online fallback (:mod:`mcp_molecules.remote`, TODO
+1.4.3). The cache sits between the bundled subset (Tier 1, read-only) and the
+network (Tier 3): it is read after the bundle and before any HTTP call, and
+written with whatever the network returns so a second lookup of the same compound
+never hits the wire.
 
-The schema mirrors the bundled store (``compounds`` / ``names`` / ``formulas``)
-so the same query shape works, plus a per-compound source/license (the cache
-mixes sources) and a ``negcache`` table for negative results with a TTL -- a
-remembered "not found" so repeated misses do not re-query the network forever.
+Each source gets its own file, ``names_cache_<source>.db`` (e.g.
+``names_cache_wikidata.db``), so sources can be added, refreshed, or dropped
+independently and the query layer (``CacheSource`` in :mod:`mcp_molecules.names`)
+simply iterates the files it finds. Per-file provenance replaces the old per-row
+``source`` / ``license`` columns: the file name carries the source and the
+per-file ``meta`` table records the source + license. Each file also keeps its
+own ``negcache`` table of negative results with a TTL -- a remembered "not found"
+so repeated misses do not re-query that source forever.
 
-Path: ``$MCP_MOLECULES_CACHE_DB`` if set, else ``$XDG_DATA_HOME/mcp-molecules/
-names_cache.db`` (``~/.local/share/...`` when XDG is unset). The file is created
-lazily on the first write; pure reads of a missing cache are a no-op.
+Directory: ``$MCP_MOLECULES_CACHE_DIR`` if set, else ``$XDG_DATA_HOME/
+mcp-molecules`` (``~/.local/share/mcp-molecules`` when XDG is unset). A source's
+file is created lazily on the first write to it; pure reads of a missing file are
+a no-op.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ import os
 import sqlite3
 import time
 import unicodedata
-from functools import lru_cache
+from functools import cache as _cache
 from pathlib import Path
 
 from .naming import FormulaError, hill_formula, normalize_name
@@ -33,15 +39,16 @@ from .naming import FormulaError, hill_formula, normalize_name
 # Negative-cache lifetime: how long a remembered miss suppresses a re-query.
 _DEFAULT_NEGCACHE_TTL = 7 * 24 * 3600  # one week
 
+_FILE_PREFIX = "names_cache_"
+_FILE_SUFFIX = ".db"
+
 _DDL = """
 CREATE TABLE IF NOT EXISTS compounds (
     id             INTEGER PRIMARY KEY,
     canonical_name TEXT NOT NULL,
-    source         TEXT NOT NULL,
-    license        TEXT NOT NULL,
     source_ref     TEXT,
     fetched_at     REAL NOT NULL,
-    UNIQUE (source, source_ref)
+    UNIQUE (source_ref)
 );
 
 CREATE TABLE IF NOT EXISTS names (
@@ -71,13 +78,35 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
 
-def cache_path() -> Path:
-    """Resolve the cache database path (env override, else XDG data dir)."""
-    override = os.environ.get("MCP_MOLECULES_CACHE_DB")
+def cache_dir() -> Path:
+    """Resolve the cache directory (env override, else XDG data dir)."""
+    override = os.environ.get("MCP_MOLECULES_CACHE_DIR")
     if override:
         return Path(override)
     base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    return Path(base) / "mcp-molecules" / "names_cache.db"
+    return Path(base) / "mcp-molecules"
+
+
+def cache_path(source: str) -> Path:
+    """Path of a single source's cache file, ``names_cache_<source>.db``."""
+    return cache_dir() / f"{_FILE_PREFIX}{source}{_FILE_SUFFIX}"
+
+
+def list_sources() -> list[str]:
+    """Names of the sources that have a cache file present, sorted.
+
+    Discovers ``names_cache_<source>.db`` files in :func:`cache_dir`; the query
+    layer iterates these. Returns ``[]`` when the directory does not exist yet.
+    """
+    directory = cache_dir()
+    if not directory.is_dir():
+        return []
+    out: list[str] = []
+    for entry in directory.iterdir():
+        name = entry.name
+        if name.startswith(_FILE_PREFIX) and name.endswith(_FILE_SUFFIX) and entry.is_file():
+            out.append(name[len(_FILE_PREFIX) : -len(_FILE_SUFFIX)])
+    return sorted(out)
 
 
 def negcache_ttl() -> float:
@@ -91,15 +120,15 @@ def negcache_ttl() -> float:
     return _DEFAULT_NEGCACHE_TTL
 
 
-@lru_cache(maxsize=1)
-def _connect() -> sqlite3.Connection:
-    """Open (creating dir + schema) the writable cache; cached per process.
+@_cache
+def _connect(source: str) -> sqlite3.Connection:
+    """Open (creating dir + schema) one source's cache file; cached per process.
 
     Only called once a write is needed or the file already exists -- callers
     guard pure reads with :func:`cache_path`.exists() so reading a never-written
-    cache does not create it.
+    source does not create its file.
     """
-    path = cache_path()
+    path = cache_path(source)
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(path), check_same_thread=False)
     con.row_factory = sqlite3.Row
@@ -119,22 +148,29 @@ def formula_key(formula: str) -> str:
 # --- reads -----------------------------------------------------------------
 
 
-def lookup_formula(name: str) -> tuple[list[dict], str, str]:
-    """Resolve a name to cached compounds; return (matches, source, license).
+def source_license(source: str) -> tuple[str, str]:
+    """Return one source's ``(source, license)`` from its file's ``meta`` table."""
+    if not cache_path(source).exists():
+        return "", ""
+    rows = _connect(source).execute("SELECT key, value FROM meta").fetchall()
+    meta = {r["key"]: r["value"] for r in rows}
+    return meta.get("source", source), meta.get("license", "")
 
-    ``matches`` are ``{"name", "formula"}`` (empty if uncached or no file).
-    ``source`` / ``license`` describe the first match's provenance -- the cache
-    mixes sources, so this reports the winning record's origin.
+
+def lookup_formula(source: str, name: str) -> list[dict]:
+    """Resolve a name to cached compounds in one source's file.
+
+    Returns ``{"name", "formula"}`` matches (empty if uncached or no file).
+    Provenance is per-file -- use :func:`source_license` for the source/license.
     """
     key = normalize_name(name)
-    if not key or not cache_path().exists():
-        return [], "", ""
+    if not key or not cache_path(source).exists():
+        return []
     rows = (
-        _connect()
+        _connect(source)
         .execute(
             """
-        SELECT c.canonical_name AS name, f.formula_norm AS formula,
-               c.source AS source, c.license AS license
+        SELECT c.canonical_name AS name, f.formula_norm AS formula
         FROM names n
         JOIN compounds c ON c.id = n.compound_id
         JOIN formulas f ON f.compound_id = c.id
@@ -148,16 +184,16 @@ def lookup_formula(name: str) -> tuple[list[dict], str, str]:
     return _dedup(rows)
 
 
-def lookup_names(formula: str, limit: int = 5) -> tuple[list[dict], str, str]:
-    """Resolve a formula to cached compound names; return (matches, source, license)."""
+def lookup_names(source: str, formula: str, limit: int = 5) -> list[dict]:
+    """Resolve a formula to cached compound names in one source's file."""
     key = formula_key(formula)
-    if not key or not cache_path().exists():
-        return [], "", ""
+    if not key or not cache_path(source).exists():
+        return []
     rows = (
-        _connect()
+        _connect(source)
         .execute(
             """
-        SELECT c.canonical_name AS name, c.source AS source, c.license AS license
+        SELECT c.canonical_name AS name
         FROM formulas f
         JOIN compounds c ON c.id = f.compound_id
         WHERE f.formula_norm = ?
@@ -168,13 +204,10 @@ def lookup_names(formula: str, limit: int = 5) -> tuple[list[dict], str, str]:
         )
         .fetchall()
     )
-    matches = [{"name": r["name"], "formula": key} for r in rows]
-    if not rows:
-        return [], "", ""
-    return matches, rows[0]["source"], rows[0]["license"]
+    return [{"name": r["name"], "formula": key} for r in rows]
 
 
-def _dedup(rows: list[sqlite3.Row]) -> tuple[list[dict], str, str]:
+def _dedup(rows: list[sqlite3.Row]) -> list[dict]:
     seen: set[tuple[str, str]] = set()
     out: list[dict] = []
     for r in rows:
@@ -183,20 +216,18 @@ def _dedup(rows: list[sqlite3.Row]) -> tuple[list[dict], str, str]:
             continue
         seen.add(item)
         out.append({"name": r["name"], "formula": r["formula"]})
-    if not out:
-        return [], "", ""
-    return out, rows[0]["source"], rows[0]["license"]
+    return out
 
 
 # --- negative cache --------------------------------------------------------
 
 
-def is_negative(query_norm: str, direction: str) -> bool:
-    """True if a still-fresh remembered miss exists for (query, direction)."""
-    if not query_norm or not cache_path().exists():
+def is_negative(source: str, query_norm: str, direction: str) -> bool:
+    """True if ``source`` holds a still-fresh remembered miss for (query, direction)."""
+    if not query_norm or not cache_path(source).exists():
         return False
     row = (
-        _connect()
+        _connect(source)
         .execute(
             "SELECT fetched_at FROM negcache WHERE query_norm = ? AND direction = ?",
             (query_norm, direction),
@@ -208,11 +239,11 @@ def is_negative(query_norm: str, direction: str) -> bool:
     return (time.time() - row["fetched_at"]) < negcache_ttl()
 
 
-def remember_miss(query_norm: str, direction: str) -> None:
-    """Record (or refresh) a negative-cache entry for (query, direction)."""
+def remember_miss(source: str, query_norm: str, direction: str) -> None:
+    """Record (or refresh) a negative-cache entry in ``source``'s file."""
     if not query_norm:
         return
-    con = _connect()
+    con = _connect(source)
     con.execute(
         "INSERT OR REPLACE INTO negcache (query_norm, direction, fetched_at) VALUES (?, ?, ?)",
         (query_norm, direction, time.time()),
@@ -224,15 +255,18 @@ def remember_miss(query_norm: str, direction: str) -> None:
 
 
 def store(records: list[dict], source: str, license: str) -> int:
-    """Insert fetched ``records`` into the cache; return the number added.
+    """Insert fetched ``records`` into ``source``'s cache file; return the number added.
 
     Each record is ``{"ref", "name", "aliases", "formulas"}`` (the shape the
-    fetchers emit). A record already present (same ``source`` + ``ref``) is
-    skipped, so re-fetching is idempotent. Recording a hit also clears any
-    matching name/formula negative-cache entries.
+    fetchers emit). A record already present (same ``ref``) is skipped, so
+    re-fetching is idempotent. The source + license are written to the file's
+    ``meta`` table on first use. Recording a hit also clears any matching
+    name/formula negative-cache entries in that file.
     """
+    con = _connect(source)
+    con.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('source', ?)", (source,))
+    con.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('license', ?)", (license,))
     added = 0
-    con = _connect()
     now = time.time()
     for rec in records:
         name = rec.get("name") or ""
@@ -240,16 +274,12 @@ def store(records: list[dict], source: str, license: str) -> int:
         if not name or not formulas:
             continue
         ref = str(rec.get("ref")) if rec.get("ref") is not None else None
-        existing = con.execute(
-            "SELECT id FROM compounds WHERE source = ? AND source_ref IS ?",
-            (source, ref),
-        ).fetchone()
+        existing = con.execute("SELECT id FROM compounds WHERE source_ref IS ?", (ref,)).fetchone()
         if existing is not None:
             continue
         cur = con.execute(
-            "INSERT INTO compounds (canonical_name, source, license, source_ref, fetched_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (name, source, license, ref, now),
+            "INSERT INTO compounds (canonical_name, source_ref, fetched_at) VALUES (?, ?, ?)",
+            (name, ref, now),
         )
         cid = cur.lastrowid
         norms = {normalize_name(n) for n in [name, *rec.get("aliases", [])]}

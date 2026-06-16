@@ -160,12 +160,13 @@ class BundledSource:
 
 
 class CacheSource:
-    """Tier 2: the writable user-dir cache (TODO 1.4.2).
+    """Tier 2: the writable user-dir cache, one file per source (TODO 1.4.2 / 2.0).
 
     Consulted after the bundled subset and before any network call; holds records
-    the online fallback (Tier 3) wrote on earlier misses. The cache mixes sources,
-    so :meth:`source_license` reports the provenance of the most recent hit served
-    on this instance -- read by :func:`find_compound` right after a hit.
+    the online fallback (Tier 3) wrote on earlier misses. Iterates the per-source
+    cache files (:func:`cache.list_sources`) in order, returning the first file
+    that yields a hit; :meth:`source_license` reports that file's provenance --
+    read by :func:`find_compound` right after a hit.
     """
 
     label = "cache"
@@ -174,14 +175,20 @@ class CacheSource:
         self._last: tuple[str, str] = ("", "")
 
     def by_name(self, name: str) -> list[dict]:
-        matches, src, lic = cache.lookup_formula(name)
-        self._last = (src, lic)
-        return matches
+        for source in cache.list_sources():
+            matches = cache.lookup_formula(source, name)
+            if matches:
+                self._last = cache.source_license(source)
+                return matches
+        return []
 
     def by_formula(self, formula: str, limit: int) -> list[dict]:
-        matches, src, lic = cache.lookup_names(formula, limit)
-        self._last = (src, lic)
-        return matches
+        for source in cache.list_sources():
+            matches = cache.lookup_names(source, formula, limit)
+            if matches:
+                self._last = cache.source_license(source)
+                return matches
+        return []
 
     def source_license(self) -> tuple[str, str]:
         return self._last
@@ -204,11 +211,11 @@ class RemoteSource:
         if not remote.online_enabled():
             return []
         key = normalize_name(name)
-        if cache.is_negative(key, "name"):
+        if cache.is_negative(remote.SOURCE, key, "name"):
             return []
         records = remote.wikidata_by_name(name)
         if not records:
-            cache.remember_miss(key, "name")
+            cache.remember_miss(remote.SOURCE, key, "name")
             return []
         cache.store(records, remote.SOURCE, remote.LICENSE)
         return [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]
@@ -217,11 +224,11 @@ class RemoteSource:
         if not remote.online_enabled():
             return []
         key = cache.formula_key(formula)
-        if cache.is_negative(key, "formula"):
+        if cache.is_negative(remote.SOURCE, key, "formula"):
             return []
         records = remote.wikidata_by_formula(formula, limit)
         if not records:
-            cache.remember_miss(key, "formula")
+            cache.remember_miss(remote.SOURCE, key, "formula")
             return []
         cache.store(records, remote.SOURCE, remote.LICENSE)
         out = [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]

@@ -185,13 +185,23 @@ Keep every item very short (1-5 sentences).
       On a miss in the pre-fetched cache (item 3), query the live database(s)
       per request, return the record, and cache it. Opt-in network; graceful
       offline fallback; negative caching with a TTL. See databases.txt (Tier 3).
-    [ ] 2.0 Per-source cache files: store each source's fetched records in its
+    [x] 2.0 Per-source cache files: store each source's fetched records in its
             own SQLite DB (e.g. names_cache_<source>.db) instead of the single
             mixed-source names_cache.db, so sources can be added/updated/dropped
             independently and the query layers them. Closes the 1.1.4 gap (one
             DB per source): per-file provenance replaces the per-row source/
             license columns; CacheSource (names.py) iterates the per-source
             files in the user dir.
+            DONE: cache.py is now directory-oriented -- cache_dir()
+            ($MCP_MOLECULES_CACHE_DIR, else $XDG_DATA_HOME/mcp-molecules) holds
+            one names_cache_<source>.db per source; cache_path(source) +
+            list_sources() discover them. Dropped the compounds.source/license
+            columns (UNIQUE now on source_ref alone); provenance moved to each
+            file's meta table, read via source_license(source). store/lookup_*/
+            is_negative/remember_miss all take a leading source arg; negcache is
+            per-source. names.CacheSource iterates list_sources() and returns the
+            first file with a hit (with its provenance); RemoteSource writes/
+            negcaches under remote.SOURCE. Env var renamed CACHE_DB -> CACHE_DIR.
     [ ] 2.1 PubChem (NCBI/NLM) -- public domain. Live PUG-REST lookup:
             name -> /compound/name/{name}/property/MolecularFormula,Title/JSON;
             formula -> /compound/fastformula/{formula}/cids/JSON; partial ->
