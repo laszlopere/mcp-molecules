@@ -343,7 +343,19 @@ Keep every item very short (1-5 sentences).
             as interpreted_as="name" rather than "formula". Decide if this is
             wanted; if not, stop indexing bare formulae as names so formula
             queries route through the formula path.
-    [ ] 7.4 Investigate concurrent access: when multiple instances of this MCP
+    [x] 7.4 Investigate concurrent access: when multiple instances of this MCP
             server run at once, can a race condition corrupt or break the shared
             Tier-2 cache (writes/negcache) or the per-source SQLite files?
             Determine the failure modes and what locking/isolation is needed.
+            DONE: no corruption (SQLite file locking protects the local-FS cache),
+            but the default rollback journal raised "database is locked" under
+            concurrent writers (reproduced: 6 procs x 200 writes), and those
+            errors were NOT fail-soft -- cache.store/remember_miss are called
+            unguarded by names.RemoteSource, so a lock timeout broke the whole
+            find_chemical_compound call. Fix: cache._connect now opens WAL +
+            15s busy_timeout (readers lock-free, writers serialize), and a
+            _fail_soft wrapper degrades any residual OperationalError on every
+            cache read/write to a skip-the-cache no-op. Regression tests in
+            test_cache_remote.py (spawned multi-proc writers: no raise, 200/200
+            rows, integrity ok). NFS/SMB caches stay out of scope (locking there
+            is unreliable regardless).

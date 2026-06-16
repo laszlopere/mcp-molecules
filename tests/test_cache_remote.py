@@ -11,6 +11,9 @@ layered-lookup logic deterministically and offline.
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
+import os
+import sqlite3
 
 import pytest
 
@@ -91,6 +94,84 @@ def test_store_clears_matching_negative() -> None:
         "CC0-1.0",
     )
     assert cache.is_negative("wikidata", "water", "name") is False
+
+
+# --- concurrent access across instances (TODO 7.4) -------------------------
+
+
+def test_cache_connection_is_wal() -> None:
+    # WAL keeps readers lock-free and serializes writers behind the busy-timeout,
+    # so the cache shared by many running instances does not throw under load.
+    con = cache._connect("wikidata")
+    assert con.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+    assert con.execute("PRAGMA busy_timeout").fetchone()[0] > 0
+
+
+def _concurrent_writer(args: tuple[str, int]) -> bool:
+    """Subprocess body: store 50 distinct records into the shared cache file."""
+    cache_dir, n = args
+    os.environ["MCP_MOLECULES_CACHE_DIR"] = cache_dir
+    os.environ["MCP_MOLECULES_ONLINE"] = "0"
+    from mcp_molecules import cache as c
+
+    c._connect.cache_clear()
+    for i in range(50):
+        rec = {"ref": f"{n}-{i}", "name": f"c{n}-{i}", "aliases": [], "formulas": ["H2O"]}
+        c.store([rec], "wikidata", "CC0")  # must never raise, even when contended
+        c.remember_miss("wikidata", f"miss-{n}-{i}", "name")
+    return True
+
+
+def test_concurrent_writers_do_not_corrupt_or_raise(tmp_path) -> None:
+    cache_dir = str(tmp_path / "shared")
+    ctx = mp.get_context("spawn")  # fresh interpreters: real cross-process contention
+    with ctx.Pool(4) as pool:
+        assert all(pool.map(_concurrent_writer, [(cache_dir, n) for n in range(4)]))
+
+    db = os.path.join(cache_dir, "names_cache_wikidata.db")
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    # Every record from every writer landed; nothing was lost to a lock timeout.
+    assert con.execute("SELECT COUNT(*) FROM compounds").fetchone()[0] == 200
+    con.close()
+
+
+def test_store_is_fail_soft_under_lock(monkeypatch) -> None:
+    # A lock timeout while caching must degrade to "not cached" (return 0), never
+    # bubble up and break the lookup that triggered the write.
+    def boom(*_a, **_k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(cache, "_store", boom)
+    rec = {"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}
+    assert cache.store([rec], "wikidata", "CC0-1.0") == 0
+
+
+def test_reads_are_fail_soft_under_lock(monkeypatch) -> None:
+    # Seed a real file, then make every connection raise on use: reads degrade to
+    # their empty default instead of propagating the error.
+    cache.store(
+        [{"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}],
+        "wikidata",
+        "CC0-1.0",
+    )
+
+    class _Boom:
+        def execute(self, *_a, **_k):
+            raise sqlite3.OperationalError("database is locked")
+
+        def rollback(self) -> None:
+            pass
+
+    def fake_connect(_source):
+        return _Boom()
+
+    fake_connect.cache_clear = lambda: None  # the conftest teardown calls this
+    monkeypatch.setattr(cache, "_connect", fake_connect)
+    assert cache.lookup_formula("wikidata", "water") == []
+    assert cache.lookup_names("wikidata", "H2O") == []
+    assert cache.is_negative("wikidata", "water", "name") is False
+    assert cache.source_license("wikidata") == ("", "")
 
 
 # --- Tier-3 Wikidata client (mocked HTTP) ----------------------------------

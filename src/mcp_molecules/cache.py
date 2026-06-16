@@ -27,10 +27,12 @@ a no-op.
 
 from __future__ import annotations
 
+import functools
 import os
 import sqlite3
 import time
 import unicodedata
+from contextlib import suppress
 from functools import cache as _cache
 from pathlib import Path
 
@@ -38,6 +40,11 @@ from .naming import FormulaError, hill_formula, normalize_name
 
 # Negative-cache lifetime: how long a remembered miss suppresses a re-query.
 _DEFAULT_NEGCACHE_TTL = 7 * 24 * 3600  # one week
+
+# How long a busy connection waits for a lock before giving up (TODO 7.4). The
+# cache is shared by every running server instance, so concurrent writers
+# contend; WAL plus this timeout serialize them instead of failing immediately.
+_BUSY_TIMEOUT_S = 15.0
 
 _FILE_PREFIX = "names_cache_"
 _FILE_SUFFIX = ".db"
@@ -127,14 +134,55 @@ def _connect(source: str) -> sqlite3.Connection:
     Only called once a write is needed or the file already exists -- callers
     guard pure reads with :func:`cache_path`.exists() so reading a never-written
     source does not create its file.
+
+    Opened in WAL mode with a busy-timeout so multiple server instances sharing
+    the cache do not collide (TODO 7.4): WAL keeps readers lock-free while writers
+    serialize, and the timeout makes a contended writer wait rather than raise
+    ``database is locked`` at once. SQLite's file locking already rules out
+    corruption on a local filesystem; this only smooths the contention.
     """
     path = cache_path(source)
     path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(path), check_same_thread=False)
+    con = sqlite3.connect(str(path), timeout=_BUSY_TIMEOUT_S, check_same_thread=False)
     con.row_factory = sqlite3.Row
+    # busy_timeout first, so even the journal_mode switch below waits on a lock.
+    con.execute(f"PRAGMA busy_timeout = {int(_BUSY_TIMEOUT_S * 1000)}")
+    try:
+        con.execute("PRAGMA journal_mode = WAL")
+        con.execute("PRAGMA synchronous = NORMAL")
+    except sqlite3.OperationalError:
+        # Lost a race to switch journal mode on first creation; another instance
+        # will have set WAL (it persists in the file header). Harmless -- stay on
+        # whatever mode is in effect; the busy-timeout still serializes writers.
+        pass
     con.executescript(_DDL)
     con.commit()
     return con
+
+
+def _fail_soft(default):
+    """Degrade SQLite contention errors to ``default`` (TODO 7.4).
+
+    The Tier-2 cache is best-effort: a locked or unwritable file must never break
+    a lookup, only skip the cache for that call. The wrapped functions all take
+    the source name first; on an :class:`sqlite3.OperationalError` we roll back
+    any half-finished write on that source's connection and return ``default``.
+    """
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrap(source: str, *args, **kwargs):
+            try:
+                return fn(source, *args, **kwargs)
+            except sqlite3.OperationalError:
+                with suppress(sqlite3.OperationalError):
+                    if cache_path(source).exists():
+                        _connect(source).rollback()
+                return default
+
+        return wrap
+
+    return deco
 
 
 def formula_key(formula: str) -> str:
@@ -148,6 +196,7 @@ def formula_key(formula: str) -> str:
 # --- reads -----------------------------------------------------------------
 
 
+@_fail_soft(("", ""))
 def source_license(source: str) -> tuple[str, str]:
     """Return one source's ``(source, license)`` from its file's ``meta`` table."""
     if not cache_path(source).exists():
@@ -157,6 +206,7 @@ def source_license(source: str) -> tuple[str, str]:
     return meta.get("source", source), meta.get("license", "")
 
 
+@_fail_soft([])
 def lookup_formula(source: str, name: str) -> list[dict]:
     """Resolve a name to cached compounds in one source's file.
 
@@ -184,6 +234,7 @@ def lookup_formula(source: str, name: str) -> list[dict]:
     return _dedup(rows)
 
 
+@_fail_soft([])
 def lookup_names(source: str, formula: str, limit: int = 5) -> list[dict]:
     """Resolve a formula to cached compound names in one source's file."""
     key = formula_key(formula)
@@ -222,6 +273,7 @@ def _dedup(rows: list[sqlite3.Row]) -> list[dict]:
 # --- negative cache --------------------------------------------------------
 
 
+@_fail_soft(False)
 def is_negative(source: str, query_norm: str, direction: str) -> bool:
     """True if ``source`` holds a still-fresh remembered miss for (query, direction)."""
     if not query_norm or not cache_path(source).exists():
@@ -239,6 +291,7 @@ def is_negative(source: str, query_norm: str, direction: str) -> bool:
     return (time.time() - row["fetched_at"]) < negcache_ttl()
 
 
+@_fail_soft(None)
 def remember_miss(source: str, query_norm: str, direction: str) -> None:
     """Record (or refresh) a negative-cache entry in ``source``'s file."""
     if not query_norm:
@@ -262,8 +315,26 @@ def store(records: list[dict], source: str, license: str) -> int:
     re-fetching is idempotent. The source + license are written to the file's
     ``meta`` table on first use. Recording a hit also clears any matching
     name/formula negative-cache entries in that file.
+
+    Fail-soft under contention (TODO 7.4): if the shared file is locked by
+    another instance past the busy-timeout, the partial transaction is rolled
+    back and ``0`` is returned -- the lookup still serves its network result, it
+    just is not cached this time and re-caches on a later call.
     """
-    con = _connect(source)
+    con = None
+    try:
+        con = _connect(source)
+        added = _store(con, records, source, license)
+        con.commit()
+        return added
+    except sqlite3.OperationalError:
+        if con is not None:
+            with suppress(sqlite3.OperationalError):
+                con.rollback()
+        return 0
+
+
+def _store(con: sqlite3.Connection, records: list[dict], source: str, license: str) -> int:
     con.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('source', ?)", (source,))
     con.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('license', ?)", (license,))
     added = 0
@@ -303,5 +374,4 @@ def store(records: list[dict], source: str, license: str) -> int:
         for nm in norms:
             con.execute("DELETE FROM negcache WHERE query_norm = ? AND direction = 'name'", (nm,))
         added += 1
-    con.commit()
     return added
