@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from mcp_molecules import isotopes
 from mcp_molecules.server import isotope_distribution, molecular_weight_calculator
 
 # Proton mass used by the implementation for [M+/-nH] ions.
@@ -205,3 +206,33 @@ def test_invalid_grouping_raises() -> None:
 def test_limit_below_one_raises() -> None:
     with pytest.raises(ValueError, match="limit must be"):
         isotope_distribution("H2O", limit=0)
+
+
+# --- internal convolution peak-cap -----------------------------------------
+
+
+def test_conv_caps_peak_count_keeping_most_intense() -> None:
+    """``_conv`` keeps the ``_MAX_PEAKS`` most intense peaks, re-sorted by mass.
+
+    During convolution of a large molecule the intermediate peak list can grow
+    past :data:`isotopes._MAX_PEAKS`; the cap drops the least intense peaks so
+    the computation stays bounded. We drive it directly with two distributions
+    whose pairwise mass-sums are all distinct (50 * 100 = 5000 > 4000), with
+    intensity increasing in ``j`` so the survivors are predictable.
+    """
+    cap = isotopes._MAX_PEAKS
+    # a: masses 0..99, unit intensity. b: masses 0,100,..,4900, intensity j+1.
+    # Sum masses i + 100*j are unique (i < 100), so 5000 distinct peaks form,
+    # each peak's intensity == (j+1). Nothing is pruned (all >> the 1e-12 cut).
+    a = [(float(i), 1.0) for i in range(100)]
+    b = [(float(100 * j), float(j + 1)) for j in range(50)]
+
+    out = isotopes._conv(a, b)
+
+    assert len(out) == cap  # capped from 5000 down to 4000
+    masses = [m for m, _ in out]
+    assert masses == sorted(masses)  # re-sorted ascending by mass after the cap
+    # 5000 - 4000 = 1000 dropped = the 10 least-intense j-bands (j=0..9, 100 each),
+    # so every survivor has intensity >= 11 and mass >= 100*10.
+    assert min(p for _, p in out) >= 11.0
+    assert min(masses) >= 1000.0
