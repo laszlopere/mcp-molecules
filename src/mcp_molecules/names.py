@@ -198,8 +198,9 @@ class RemoteSource:
     """Tier 3: the opt-in online fallback (TODO 1.4.3).
 
     On a miss in Tiers 1+2, walks the live-database fetchers (:data:`remote.FETCHERS`
-    -- PubChem then Wikidata) in order, returning the first source with a hit and
-    writing it into that source's Tier-2 cache file (TODO 2.0). Network is opt-in
+    -- PubChem, Wikidata, then EPA CompTox) in order, skipping any source that is
+    unavailable (e.g. EPA without its API key), returning the first source with a
+    hit and writing it into that source's Tier-2 cache file (TODO 2.0). Network is opt-in
     and fail-soft: when disabled or offline the fetchers return ``[]`` and lookups
     degrade to "not found". A per-source empty result is remembered in that
     source's negative cache (with a TTL) so repeated misses do not re-query;
@@ -233,6 +234,11 @@ class RemoteSource:
         if not remote.online_enabled():
             return []
         for fetcher in remote.FETCHERS:
+            # Skip a source that is unavailable (e.g. missing API key) without
+            # recording a miss -- otherwise the negcache would suppress it once
+            # the key is later configured.
+            if not fetcher.available():
+                continue
             if cache.is_negative(fetcher.source, key, direction):
                 continue
             records = call(fetcher)

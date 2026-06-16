@@ -233,7 +233,7 @@ Keep every item very short (1-5 sentences).
             and that carry P274. wikidata_by_formula uses SPARQL on the Hill key.
             P274 normalized via hill_formula (raw NFKC fallback); descriptive UA;
             fail-soft _get_json (returns None on any timeout/HTTP/parse error).
-    [ ] 2.3 EPA DSSTox / CompTox -- US public domain (see 1.3.1). Live CCTE
+    [x] 2.3 EPA DSSTox / CompTox -- US public domain (see 1.3.1). Live CCTE
             Chemical API at api-ccte.epa.gov (free x-api-key header). name ->
             /chemical/search/equal/{name} (or start-with/contain) returns
             DTXSID hits; then /chemical/detail/search/by-dtxsid/{dtxsid} for
@@ -242,6 +242,17 @@ Keep every item very short (1-5 sentences).
             same fail-soft pattern as 2.2 (degrade to [] on any error). API key
             from $MCP_MOLECULES_EPA_API_KEY (sent as x-api-key); unset -> skip
             this source (treat like offline), so the keyless sources still work.
+            DONE: src/mcp_molecules/remote.py -- epa_by_name (search/equal ->
+            per-DTXSID detail for preferredName + molFormula; queried name and
+            casrn kept as aliases) and epa_by_formula (msready/search/by-formula
+            -> DTXSIDs -> detail). molFormula via hill_formula; _get_json now
+            takes extra headers (x-api-key) and tolerates the list payloads the
+            EPA endpoints return. Source "comptox", public-domain. Added as a
+            third remote.FETCHERS entry with a new Fetcher.available gate:
+            epa_available() (online AND key set); names.RemoteSource skips an
+            unavailable source WITHOUT negcaching it, so a later-configured key is
+            not suppressed. Mocked tests in test_cache_remote.py + live
+            test_functional_epa.py (skips when the key is unset).
     [ ] 2.4 ChEBI (EBI) -- CC BY 4.0 (attribution; see 1.3.2). Live ChEBI Web
             Services at www.ebi.ac.uk/webservices/chebi/2.0. name ->
             getLiteEntity?search={name}&searchCategory=ALL returns ChEBI IDs;

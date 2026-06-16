@@ -62,13 +62,21 @@ You can ask things like:
   - `grouping` — `unit` *(default)* collapses to nominal integer masses; `exact`
     keeps every resolved isotopologue.
 - **`find_chemical_compound`** — look up a compound by name or molecular
-  formula against a bundled offline database (a PubChem subset). Parameters:
+  formula. Searches a bundled offline database (a PubChem subset) and a writable
+  user cache first, then — unless disabled — an online fallback (PubChem,
+  Wikidata, and, when an API key is set, EPA CompTox), caching what it fetches.
+  Parameters:
   - `query` — a name (`aspirin`, `acetylsalicylic acid`) or a formula
     (`H2O`, `C9H8O4`); formulae are matched in the Hill system.
   - `by` — `auto` *(default)* guesses name vs. formula and falls back to the
     other direction on a miss; `name` or `formula` pin the direction.
   - `limit` — maximum compounds to return for a formula lookup (isomers share
     a formula), preferred name first.
+
+  The online fallback is on by default; set `MCP_MOLECULES_ONLINE` to a falsy
+  value (`0`/`false`/`no`/`off`) to keep lookups fully offline. The EPA CompTox
+  source additionally needs a free CCTE API key in `MCP_MOLECULES_EPA_API_KEY`;
+  without it that source is skipped.
 - **`info`** — server availability / version / environment health check.
 
 ## Install

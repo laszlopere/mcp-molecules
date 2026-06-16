@@ -4,17 +4,19 @@
 """Tier-3 online fallback: per-record lookups against the live databases.
 
 Single-record lookups over the live database APIs, used only when the bundled
-subset and the writable cache both miss. Two sources are wired so far -- PubChem
-(NCBI/NLM, US public domain; TODO 2.1) and Wikidata (CC0 1.0, public domain;
-TODO 2.2) -- both freely cacheable and redistributable. They are exposed as a
-:class:`Fetcher` registry (:data:`FETCHERS`) that the query layer
-(``RemoteSource`` in :mod:`mcp_molecules.names`) walks in order, returning the
-first source with a hit.
+subset and the writable cache both miss. Three sources are wired -- PubChem
+(NCBI/NLM, US public domain; TODO 2.1), Wikidata (CC0 1.0, public domain;
+TODO 2.2), and EPA DSSTox / CompTox (US public domain; TODO 2.3) -- all freely
+cacheable and redistributable. They are exposed as a :class:`Fetcher` registry
+(:data:`FETCHERS`) that the query layer (``RemoteSource`` in
+:mod:`mcp_molecules.names`) walks in order, returning the first source with a hit.
 
 Network is on by default but can be disabled (:func:`online_enabled`), and every
 call fails soft: on a timeout, HTTP error, or malformed response the functions
 return ``[]`` so an offline or flaky network degrades to "not found" rather than
 raising. A descriptive ``User-Agent`` is sent per the Wikimedia user-agent policy.
+EPA's CCTE API additionally needs a free key (:func:`epa_available`); with none
+set the source is skipped like being offline.
 
 Returned records use the fetcher shape ``{"ref", "name", "aliases", "formulas"}``
 so :func:`mcp_molecules.cache.store` can cache them directly. Formulae are
@@ -37,6 +39,7 @@ from .naming import FormulaError, hill_formula, normalize_name
 _API = "https://www.wikidata.org/w/api.php"
 _SPARQL = "https://query.wikidata.org/sparql"
 _PUBCHEM = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+_EPA = "https://api-ccte.epa.gov"
 _UA = (
     f"mcp-molecules/{__version__} "
     "(https://github.com/laszlopere/mcp-molecules; laszlopere@gmail.com)"
@@ -48,6 +51,9 @@ WIKIDATA_SOURCE = "wikidata"
 WIKIDATA_LICENSE = "CC0-1.0"
 PUBCHEM_SOURCE = "pubchem"
 PUBCHEM_LICENSE = "public-domain"
+EPA_SOURCE = "comptox"
+EPA_LICENSE = "public-domain"
+EPA_API_KEY_ENV = "MCP_MOLECULES_EPA_API_KEY"
 
 # Online is the default; set $MCP_MOLECULES_ONLINE to a falsy value to opt out.
 _FALSY = {"0", "false", "no", "off"}
@@ -63,9 +69,17 @@ def online_enabled() -> bool:
     return os.environ.get("MCP_MOLECULES_ONLINE", "").strip().casefold() not in _FALSY
 
 
-def _get_json(url: str) -> dict | None:
-    """GET ``url`` and parse JSON; return ``None`` on any failure (fail soft)."""
-    req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
+def _get_json(url: str, headers: dict | None = None) -> dict | list | None:
+    """GET ``url`` and parse JSON; return ``None`` on any failure (fail soft).
+
+    ``headers`` adds request headers on top of the default ``User-Agent`` /
+    ``Accept`` pair (e.g. EPA's ``x-api-key``). The parsed value may be a dict or
+    a list -- EPA's search and formula endpoints return JSON arrays.
+    """
+    hdrs = {"User-Agent": _UA, "Accept": "application/json"}
+    if headers:
+        hdrs.update(headers)
+    req = urllib.request.Request(url, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             # strict=False: some Wikidata literals carry stray control characters.
@@ -74,7 +88,7 @@ def _get_json(url: str) -> dict | None:
         return None
 
 
-def _hill_or_raw(raw: str) -> str:
+def _hill_or_raw(raw: object) -> str:
     """Hill-canonicalize ``raw``, falling back to its stripped form (or '')."""
     if not isinstance(raw, str) or not raw:
         return ""
@@ -127,7 +141,7 @@ def wikidata_by_name(name: str, limit: int = 7) -> list[dict]:
         )
     )
     search = _get_json(search_url)
-    if not search:
+    if not isinstance(search, dict):
         return []
     qids = [hit["id"] for hit in search.get("search", []) if hit.get("id")]
     if not qids:
@@ -147,7 +161,7 @@ def wikidata_by_name(name: str, limit: int = 7) -> list[dict]:
         )
     )
     data = _get_json(entities_url)
-    if not data:
+    if not isinstance(data, dict):
         return []
 
     records: list[dict] = []
@@ -190,7 +204,7 @@ def wikidata_by_formula(formula: str, limit: int = 5) -> list[dict]:
     )
     url = _SPARQL + "?" + urllib.parse.urlencode({"query": query, "format": "json"})
     data = _get_json(url)
-    if not data:
+    if not isinstance(data, dict):
         return []
 
     records: list[dict] = []
@@ -216,7 +230,7 @@ def _pubchem_properties(path: str, limit: int) -> list[dict]:
     """
     url = f"{_PUBCHEM}/compound/{path}/property/MolecularFormula,Title/JSON"
     data = _get_json(url)
-    if not data:
+    if not isinstance(data, dict):
         return []
     props = data.get("PropertyTable", {}).get("Properties", [])
     records: list[dict] = []
@@ -270,7 +284,7 @@ def pubchem_by_formula(formula: str, limit: int = 5) -> list[dict]:
         return []
     cids_url = f"{_PUBCHEM}/compound/fastformula/{urllib.parse.quote(hill, safe='')}/cids/JSON"
     data = _get_json(cids_url)
-    if not data:
+    if not isinstance(data, dict):
         return []
     cids = data.get("IdentifierList", {}).get("CID", [])[:limit]
     if not cids:
@@ -279,23 +293,135 @@ def pubchem_by_formula(formula: str, limit: int = 5) -> list[dict]:
     return _pubchem_properties(f"cid/{joined}", limit)
 
 
+# --- EPA DSSTox / CompTox (TODO 2.3) ---------------------------------------
+
+
+def epa_api_key() -> str:
+    """The EPA CCTE API key from ``$MCP_MOLECULES_EPA_API_KEY`` (stripped, or '')."""
+    return os.environ.get(EPA_API_KEY_ENV, "").strip()
+
+
+def epa_available() -> bool:
+    """True only when online and an EPA API key is configured.
+
+    The CCTE API requires a (free) ``x-api-key``; with no key the source is
+    treated like offline -- skipped entirely, so the keyless sources still work
+    and no spurious "not found" is recorded against it.
+    """
+    return online_enabled() and bool(epa_api_key())
+
+
+def _epa_get(url: str) -> dict | list | None:
+    """GET an EPA CCTE URL with the ``x-api-key`` header (fail soft)."""
+    return _get_json(url, headers={"x-api-key": epa_api_key()})
+
+
+def _epa_detail(dtxsid: str) -> dict | None:
+    """Fetch a DTXSID's detail and build a fetcher record (or ``None``).
+
+    Reads ``preferredName`` + ``molFormula`` (Hill-normalized) from the chemical
+    detail endpoint; the CAS number, when present, is carried as an alias so a
+    later lookup by CASRN also hits the cache.
+    """
+    url = f"{_EPA}/chemical/detail/search/by-dtxsid/{urllib.parse.quote(dtxsid, safe='')}"
+    data = _epa_get(url)
+    if not isinstance(data, dict):
+        return None
+    name = (data.get("preferredName") or "").strip()
+    formula = _hill_or_raw(data.get("molFormula"))
+    if not name or not formula:
+        return None
+    aliases = []
+    casrn = (data.get("casrn") or "").strip()
+    if casrn:
+        aliases.append(casrn)
+    return {"ref": dtxsid, "name": name, "aliases": aliases, "formulas": [formula]}
+
+
+def epa_by_name(name: str, limit: int = 5) -> list[dict]:
+    """Resolve a compound ``name`` to EPA CompTox records (TODO 2.3).
+
+    Searches ``/chemical/search/equal/{name}`` for DTXSID hits, then fetches each
+    one's detail for ``preferredName`` + ``molFormula``. The queried name is kept
+    as an alias when it differs from the preferred name. Returns ``[]`` when the
+    source is unavailable (offline or no API key), or with no match.
+    """
+    if not epa_available():
+        return []
+    query = name.strip()
+    if not query:
+        return []
+    url = f"{_EPA}/chemical/search/equal/{urllib.parse.quote(query, safe='')}"
+    data = _epa_get(url)
+    if not isinstance(data, list):
+        return []
+    key = normalize_name(query)
+    records: list[dict] = []
+    for hit in data[:limit]:
+        dtxsid = (hit.get("dtxsid") or "").strip() if isinstance(hit, dict) else ""
+        if not dtxsid:
+            continue
+        rec = _epa_detail(dtxsid)
+        if not rec:
+            continue
+        if normalize_name(rec["name"]) != key and query not in rec["aliases"]:
+            rec["aliases"].append(query)
+        records.append(rec)
+    return records
+
+
+def epa_by_formula(formula: str, limit: int = 5) -> list[dict]:
+    """Resolve a molecular ``formula`` to named EPA CompTox records (TODO 2.3).
+
+    Uses the MS-ready formula search ``/chemical/msready/search/by-formula/{hill}``
+    to find DTXSIDs, then a detail fetch per hit for its name + formula. Returns
+    ``[]`` when unavailable, on an unparseable formula, or with no match.
+    """
+    if not epa_available():
+        return []
+    try:
+        hill = hill_formula(formula)
+    except FormulaError:
+        return []
+    if not hill:
+        return []
+    url = f"{_EPA}/chemical/msready/search/by-formula/{urllib.parse.quote(hill, safe='')}"
+    data = _epa_get(url)
+    if not isinstance(data, list):
+        return []
+    records: list[dict] = []
+    for dtxsid in data[:limit]:
+        if not isinstance(dtxsid, str) or not dtxsid.strip():
+            continue
+        rec = _epa_detail(dtxsid.strip())
+        if rec:
+            records.append(rec)
+    return records
+
+
 class Fetcher(NamedTuple):
     """One Tier-3 online source: its provenance plus bidirectional fetchers.
 
     ``by_name`` / ``by_formula`` take ``(query, limit)`` and emit the shared
     fetcher record shape. ``source`` / ``license`` tag whatever they return so the
-    per-source cache (TODO 2.0) records the right provenance.
+    per-source cache (TODO 2.0) records the right provenance. ``available`` gates
+    whether the source is consulted at all -- a source that needs a key but has
+    none returns ``False`` and is skipped (no query, no negative-cache entry),
+    exactly like being offline.
     """
 
     source: str
     license: str
     by_name: Callable[..., list[dict]]
     by_formula: Callable[..., list[dict]]
+    available: Callable[[], bool] = lambda: True
 
 
 # Query order: PubChem first (largest public-domain set, resolves trivial +
-# systematic names + CAS), then Wikidata. The query layer returns the first hit.
+# systematic names + CAS), then Wikidata, then EPA CompTox (only when its API key
+# is configured; otherwise skipped). The query layer returns the first hit.
 FETCHERS: list[Fetcher] = [
     Fetcher(PUBCHEM_SOURCE, PUBCHEM_LICENSE, pubchem_by_name, pubchem_by_formula),
     Fetcher(WIKIDATA_SOURCE, WIKIDATA_LICENSE, wikidata_by_name, wikidata_by_formula),
+    Fetcher(EPA_SOURCE, EPA_LICENSE, epa_by_name, epa_by_formula, epa_available),
 ]

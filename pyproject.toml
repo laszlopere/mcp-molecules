@@ -36,7 +36,7 @@ packages = ["src/mcp_molecules"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "network: test requires live network access (Wikidata); skipped when offline",
+    "network: test requires live network access (online sources); skipped when offline",
 ]
 
 [tool.ruff]

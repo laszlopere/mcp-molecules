@@ -50,9 +50,10 @@ mcp = FastMCP(
         "formulae with nested groups and isotope labels (e.g. 'Ca(OH)2', 'D2O'), "
         "and can report propagated uncertainties, monoisotopic mass, and percent "
         "composition -- offline and deterministic. Also resolves compound names "
-        "<-> formulae from a bundled database, with an on-by-default Wikidata "
-        "fallback for misses (set MCP_MOLECULES_ONLINE to a falsy value to keep "
-        "lookups fully offline)."
+        "<-> formulae from a bundled database, with an on-by-default online "
+        "fallback for misses (PubChem, Wikidata, and -- with an API key -- EPA "
+        "CompTox; set MCP_MOLECULES_ONLINE to a falsy value to keep lookups fully "
+        "offline)."
     ),
 )
 
@@ -329,12 +330,14 @@ def find_chemical_compound(
 ) -> dict:
     """Look up a chemical compound by name or molecular formula.
 
-    Searches the bundled name<->formula database (a PubChem subset). A name
+    Searches the bundled name<->formula database (a PubChem subset) first, then
+    the writable user cache, then -- unless disabled -- the online fallback
+    (PubChem, Wikidata, and, when an API key is set, EPA CompTox). A name
     resolves to its molecular formula(e); a formula resolves to the compound
     name(s) sharing it (isomers), ordered with the preferred name first. The
     direction is chosen by ``by``. Returns the ``query``, how it was interpreted
     (``interpreted_as``), the ``matches`` (each ``{"name", "formula"}``, the
-    preferred result first), and the dataset ``source`` / ``license``.
+    preferred result first), and the resolving ``source`` / ``license``.
 
     Raises ``ValueError`` if nothing matches.
     """

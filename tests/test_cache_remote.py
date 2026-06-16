@@ -180,7 +180,7 @@ def test_reads_are_fail_soft_under_lock(monkeypatch) -> None:
 def _canned(monkeypatch, responses: dict[str, dict]) -> None:
     """Route remote._get_json by a substring found in the requested URL."""
 
-    def fake(url: str):
+    def fake(url: str, headers=None):
         for needle, payload in responses.items():
             if needle in url:
                 return payload
@@ -423,6 +423,147 @@ def test_pubchem_records_are_json_serializable(monkeypatch) -> None:
     recs = remote.pubchem_by_name("aspirin")
     assert json.loads(json.dumps(recs)) == recs
     assert set(recs[0]) == {"ref", "name", "aliases", "formulas"}
+
+
+# --- Tier-3 EPA CompTox client (mocked HTTP) -------------------------------
+
+
+@pytest.fixture
+def epa_online(monkeypatch):
+    """Online + a configured EPA key, so the CompTox source is available."""
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    monkeypatch.setenv(remote.EPA_API_KEY_ENV, "test-key")
+    return monkeypatch
+
+
+def test_epa_by_name(epa_online) -> None:
+    _canned(
+        epa_online,
+        {
+            "search/equal/": [{"dtxsid": "DTXSID5020023"}],
+            "detail/search/by-dtxsid/": {
+                "preferredName": "Aspirin",
+                "molFormula": "C9H8O4",
+                "casrn": "50-78-2",
+            },
+        },
+    )
+    recs = remote.epa_by_name("acetylsalicylic acid")
+    assert len(recs) == 1
+    assert recs[0]["ref"] == "DTXSID5020023"
+    assert recs[0]["name"] == "Aspirin"
+    assert recs[0]["formulas"] == ["C9H8O4"]
+    # CASRN is carried as an alias, and so is the queried name (differs from Title).
+    assert "50-78-2" in recs[0]["aliases"]
+    assert "acetylsalicylic acid" in recs[0]["aliases"]
+
+
+def test_epa_by_name_no_alias_when_name_matches(epa_online) -> None:
+    _canned(
+        epa_online,
+        {
+            "search/equal/": [{"dtxsid": "DTXSID6020196"}],
+            "detail/search/by-dtxsid/": {"preferredName": "Water", "molFormula": "H2O"},
+        },
+    )
+    recs = remote.epa_by_name("water")  # normalizes to the preferred name -> no name alias
+    assert recs[0]["aliases"] == []  # no casrn in the payload, name matches
+
+
+def test_epa_by_name_normalizes_formula(epa_online) -> None:
+    _canned(
+        epa_online,
+        {
+            "search/equal/": [{"dtxsid": "DTXSID6020196"}],
+            "detail/search/by-dtxsid/": {"preferredName": "Water", "molFormula": "OH2"},
+        },
+    )
+    assert remote.epa_by_name("water")[0]["formulas"] == ["H2O"]
+
+
+def test_epa_by_formula(epa_online) -> None:
+    _canned(
+        epa_online,
+        {
+            "msready/search/by-formula/": ["DTXSID5020023", "DTXSID00000000"],
+            "detail/search/by-dtxsid/": {
+                "preferredName": "Aspirin",
+                "molFormula": "C9H8O4",
+                "casrn": "50-78-2",
+            },
+        },
+    )
+    recs = remote.epa_by_formula("C9H8O4", limit=2)
+    assert [r["name"] for r in recs] == ["Aspirin", "Aspirin"]
+    assert recs[0]["formulas"] == ["C9H8O4"]
+    assert recs[0]["ref"] == "DTXSID5020023"
+
+
+def test_epa_unavailable_without_key(monkeypatch) -> None:
+    # Online but no API key -> the source is unavailable, never touches the network.
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    monkeypatch.delenv(remote.EPA_API_KEY_ENV, raising=False)
+    monkeypatch.setattr(remote, "_get_json", lambda *a, **k: pytest.fail("no key -> no request"))
+    assert remote.epa_available() is False
+    assert remote.epa_by_name("aspirin") == []
+    assert remote.epa_by_formula("C9H8O4") == []
+
+
+def test_epa_online_disabled_returns_empty(monkeypatch) -> None:
+    monkeypatch.setenv(remote.EPA_API_KEY_ENV, "test-key")  # key present, but offline
+    monkeypatch.setattr(remote, "_get_json", lambda *a, **k: pytest.fail("must not hit network"))
+    assert remote.epa_available() is False  # conftest forces MCP_MOLECULES_ONLINE=0
+    assert remote.epa_by_name("aspirin") == []
+    assert remote.epa_by_formula("C9H8O4") == []
+
+
+def test_epa_fail_soft_on_network_error(epa_online) -> None:
+    epa_online.setattr(remote, "_get_json", lambda *a, **k: None)  # simulate 404/timeout
+    assert remote.epa_by_name("aspirin") == []
+    assert remote.epa_by_formula("C9H8O4") == []
+
+
+def test_epa_records_are_json_serializable(epa_online) -> None:
+    _canned(
+        epa_online,
+        {
+            "search/equal/": [{"dtxsid": "DTXSID5020023"}],
+            "detail/search/by-dtxsid/": {"preferredName": "Aspirin", "molFormula": "C9H8O4"},
+        },
+    )
+    recs = remote.epa_by_name("aspirin")
+    assert json.loads(json.dumps(recs)) == recs
+    assert set(recs[0]) == {"ref", "name", "aliases", "formulas"}
+
+
+def test_epa_without_key_is_not_negatively_cached(monkeypatch) -> None:
+    # An unavailable EPA source must be skipped in RemoteSource without recording a
+    # miss, so configuring the key later is not suppressed by a stale negcache entry.
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    monkeypatch.delenv(remote.EPA_API_KEY_ENV, raising=False)
+    _canned(monkeypatch, {"foo": {}})  # PubChem/Wikidata both miss (no needle matches)
+    assert names.RemoteSource().by_name("nonesuch") == []
+    assert cache.is_negative(remote.PUBCHEM_SOURCE, "nonesuch", "name") is True
+    assert cache.is_negative(remote.WIKIDATA_SOURCE, "nonesuch", "name") is True
+    # EPA was skipped (unavailable), so no negative entry was written for it.
+    assert cache.is_negative(remote.EPA_SOURCE, "nonesuch", "name") is False
+
+
+def test_epa_wins_when_others_miss(monkeypatch) -> None:
+    # PubChem + Wikidata return nothing; EPA (with a key) answers and provides the hit.
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    monkeypatch.setenv(remote.EPA_API_KEY_ENV, "test-key")
+    _canned(
+        monkeypatch,
+        {
+            "search/equal/": [{"dtxsid": "DTXSID5020023"}],
+            "detail/search/by-dtxsid/": {"preferredName": "Aspirin", "molFormula": "C9H8O4"},
+        },
+    )  # PubChem/Wikidata URLs match no needle -> None -> fall through to EPA
+    r = names.find_compound("zzonlyinepa", by="name")
+    assert r["source"] == "comptox"
+    assert r["license"] == "public-domain"
+    assert r["matches"][0] == {"name": "Aspirin", "formula": "C9H8O4"}
 
 
 # --- layered find_compound across all three tiers --------------------------
