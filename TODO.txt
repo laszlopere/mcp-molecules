@@ -406,3 +406,26 @@ Keep every item very short (1-5 sentences).
             DONE: rewrote [project].description to cover calculations +
             cached formula finder; also added isotope_distribution to the README
             and a "you can ask things like" example block. Shipped in v0.2.0.
+
+[ ] 8 2D representation (structural formula) download. Resolve a compound to a
+      2D structure -- connection table (MOL/SDF), rendered image (PNG/SVG), or
+      connectivity string (SMILES/InChI) -- keyed by name/identifier, not by the
+      bare formula. No database is shipped for this feature; fetch per request
+      from the sources below (same fail-soft, opt-in network as item 2). Local
+      Tier-2 caching may be added later, like the name<->formula lookup.
+      PARKED (not in the near future): this is an expert/scientist feature,
+      outside this server's audience. Findings from the spike: a pure-stdlib
+      ASCII rasterizer of fetched 2D coords works but looks rough; Open Babel's
+      built-in `-oascii` is turnkey but a heavy native dep and still ugly
+      (collapses H to subscript counts, e.g. methane -> "C4"); LaTeX/chemfig
+      (code via mol2chemfigPy3, render via pdflatex) gives publication-quality
+      output but needs a LaTeX toolchain and targets experts. If revived, the
+      lightest path is a tool returning chemfig/SMILES text (no heavy runtime
+      dep), with optional server-side image rendering as an extra.
+    [ ] 8.1 PubChem -- public domain. 2D SDF, PNG, SMILES/InChI by CID/name.
+    [ ] 8.2 EPA CompTox / DSSTox -- public domain. MOL/MRV/image by DTXSID.
+    [ ] 8.3 Wikidata -- CC0. SMILES/InChI claims; Commons structure images.
+    [ ] 8.4 NCI/CADD resolver -- name/SMILES -> SDF/image (uptime spotty).
+    [ ] 8.5 ChEBI -- CC BY (attribution). MOL/SDF structures.
+    [ ] 8.6 ChEMBL -- CC BY-SA (share-alike). SMILES/MOL.
+    [ ] 8.7 OPSIN + RDKit/Open Babel -- generate 2D locally, no DB to ship.
