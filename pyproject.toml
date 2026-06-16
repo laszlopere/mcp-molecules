@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-molecules"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "An MCP server for molecular weight / molar mass calculation from chemical formulae, backed by the NIST atomic weights database."
 readme = "README.md"
 requires-python = ">=3.10"
