@@ -203,6 +203,31 @@ def test_find_compound_normalized_on_formula_miss(db) -> None:
     assert r["normalized"] == "Fe2O12S3"
 
 
+def test_find_compound_normalized_on_reordered_hit(db) -> None:
+    # "OH2" is a valid (non-Hill) spelling -> canonicalized to H2O and matched.
+    r = names.find_compound("OH2")
+    assert r["interpreted_as"] == "formula"
+    assert r["normalized"] == "H2O"
+    assert r["matches"][0]["name"] == "water"
+
+
+def test_find_compound_normalized_null_when_pinned_name(db) -> None:
+    # by="name" never canonicalizes, even for a formula-looking query.
+    r = names.find_compound("OH2", by="name")
+    assert r["interpreted_as"] == "name"
+    assert r["normalized"] is None
+
+
+def test_find_compound_unparseable_formula_normalized_null(db) -> None:
+    # The hydrate parses as neither a name nor a Hill formula; auto falls through
+    # to the raw-form formula lookup, so interpreted_as is "formula" but there is
+    # no Hill key to report.
+    r = names.find_compound("CuSO4·5H2O")
+    assert r["interpreted_as"] == "formula"
+    assert r["normalized"] is None
+    assert r["matches"][0]["name"].startswith("copper")
+
+
 def test_find_compound_override(db) -> None:
     # "water" is a name; forcing a formula reading finds nothing.
     assert names.find_compound("water", by="formula")["matches"] == []

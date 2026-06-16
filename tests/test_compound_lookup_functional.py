@@ -103,10 +103,21 @@ def test_auto_falls_back_to_formula_when_name_misses() -> None:
     # lookup, which matches the cation choline. The hit is reported as a formula.
     r = find_chemical_compound("C5H14NO+")
     assert r["interpreted_as"] == "formula"
+    # The charge keeps it from Hill-canonicalizing, so no key is reported.
+    assert r["normalized"] is None
     assert r["matches"][0] == {"name": "Choline", "formula": "C5H14NO+"}
     # Pinning the failing direction confirms the fallback is what rescued it.
     with pytest.raises(ValueError, match="no chemical compound found"):
         find_chemical_compound("C5H14NO+", by="name")
+
+
+def test_non_hill_spelling_reports_canonical_key() -> None:
+    # A valid but non-Hill spelling is canonicalized before the lookup; the
+    # searched key is surfaced even though the input differs from it.
+    r = find_chemical_compound("OC")  # -> "CO"
+    assert r["interpreted_as"] == "formula"
+    assert r["normalized"] == "CO"
+    assert r["matches"][0]["name"] == "Carbon Monoxide"
 
 
 # --- by="name" vs by="formula" pinning -------------------------------------
