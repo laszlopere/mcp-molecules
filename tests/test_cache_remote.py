@@ -311,6 +311,120 @@ def test_fail_soft_on_network_error(monkeypatch) -> None:
     assert remote.wikidata_by_formula("H2O") == []
 
 
+# --- Tier-3 PubChem client (mocked HTTP) -----------------------------------
+
+
+def test_pubchem_by_name(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    _canned(
+        monkeypatch,
+        {
+            "compound/name/": {
+                "PropertyTable": {
+                    "Properties": [{"CID": 2244, "MolecularFormula": "C9H8O4", "Title": "Aspirin"}]
+                }
+            }
+        },
+    )
+    recs = remote.pubchem_by_name("acetylsalicylic acid")
+    assert len(recs) == 1
+    assert recs[0]["ref"] == "CID:2244"
+    assert recs[0]["name"] == "Aspirin"
+    assert recs[0]["formulas"] == ["C9H8O4"]
+    # The queried name differs from the Title, so it is kept as an alias.
+    assert recs[0]["aliases"] == ["acetylsalicylic acid"]
+
+
+def test_pubchem_by_name_no_alias_when_title_matches(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    _canned(
+        monkeypatch,
+        {
+            "compound/name/": {
+                "PropertyTable": {
+                    "Properties": [{"CID": 962, "MolecularFormula": "H2O", "Title": "Water"}]
+                }
+            }
+        },
+    )
+    recs = remote.pubchem_by_name("water")  # normalizes to the Title -> no alias
+    assert recs[0]["aliases"] == []
+
+
+def test_pubchem_by_name_normalizes_formula(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    _canned(
+        monkeypatch,
+        {
+            "compound/name/": {
+                "PropertyTable": {
+                    "Properties": [{"CID": 962, "MolecularFormula": "OH2", "Title": "Water"}]
+                }
+            }
+        },
+    )
+    assert remote.pubchem_by_name("water")[0]["formulas"] == ["H2O"]
+
+
+def test_pubchem_by_formula(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    _canned(
+        monkeypatch,
+        {
+            "fastformula/": {"IdentifierList": {"CID": [5793, 10954115, 64689]}},
+            "compound/cid/": {
+                "PropertyTable": {
+                    "Properties": [
+                        {"CID": 5793, "MolecularFormula": "C6H12O6", "Title": "D-Glucose"},
+                        {"CID": 10954115, "MolecularFormula": "C6H12O6", "Title": "L-Glucose"},
+                    ]
+                }
+            },
+        },
+    )
+    recs = remote.pubchem_by_formula("C6H12O6", limit=2)
+    assert [r["name"] for r in recs] == ["D-Glucose", "L-Glucose"]
+    assert recs[0]["formulas"] == ["C6H12O6"]
+    assert recs[0]["ref"] == "CID:5793"
+
+
+def test_pubchem_by_formula_no_cids(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    _canned(monkeypatch, {"fastformula/": {"IdentifierList": {"CID": []}}})
+    assert remote.pubchem_by_formula("C99H99") == []
+
+
+def test_pubchem_fail_soft_on_network_error(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    monkeypatch.setattr(remote, "_get_json", lambda url: None)  # simulate 404/timeout
+    assert remote.pubchem_by_name("aspirin") == []
+    assert remote.pubchem_by_formula("C9H8O4") == []
+
+
+def test_pubchem_online_disabled_returns_empty(monkeypatch) -> None:
+    # conftest forces MCP_MOLECULES_ONLINE=0 -> hard offline, no network touched.
+    monkeypatch.setattr(remote, "_get_json", lambda url: pytest.fail("must not hit network"))
+    assert remote.pubchem_by_name("aspirin") == []
+    assert remote.pubchem_by_formula("C9H8O4") == []
+
+
+def test_pubchem_records_are_json_serializable(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    _canned(
+        monkeypatch,
+        {
+            "compound/name/": {
+                "PropertyTable": {
+                    "Properties": [{"CID": 2244, "MolecularFormula": "C9H8O4", "Title": "Aspirin"}]
+                }
+            }
+        },
+    )
+    recs = remote.pubchem_by_name("aspirin")
+    assert json.loads(json.dumps(recs)) == recs
+    assert set(recs[0]) == {"ref", "name", "aliases", "formulas"}
+
+
 # --- layered find_compound across all three tiers --------------------------
 
 
@@ -325,9 +439,11 @@ def test_remote_miss_is_negatively_cached(monkeypatch) -> None:
     monkeypatch.setattr(remote, "_get_json", fake)
     src = names.RemoteSource()
     assert src.by_name("nonesuch") == []
-    assert cache.is_negative(remote.SOURCE, "nonesuch", "name") is True
+    # Every wired source records the miss in its own negative cache.
+    assert cache.is_negative(remote.WIKIDATA_SOURCE, "nonesuch", "name") is True
+    assert cache.is_negative(remote.PUBCHEM_SOURCE, "nonesuch", "name") is True
     before = calls["n"]
-    # The remembered miss short-circuits the next lookup -> no further HTTP.
+    # The remembered misses short-circuit the next lookup -> no further HTTP.
     assert src.by_name("nonesuch") == []
     assert calls["n"] == before
 
@@ -369,6 +485,50 @@ def test_find_compound_falls_through_to_remote_and_caches(monkeypatch) -> None:
     r2 = names.find_compound("zzfakecompound", by="name")
     assert r2["matches"][0]["formula"] == "C99H99"
     assert r2["source"] == "wikidata"
+
+
+def test_pubchem_wins_over_wikidata(monkeypatch) -> None:
+    # Both remotes can answer; PubChem is queried first, so it provides the hit
+    # and Wikidata is never consulted.
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+
+    def fake(url: str):
+        if "wikidata" in url or "wbsearchentities" in url:
+            pytest.fail("Wikidata must not be reached once PubChem answers")
+        if "compound/name/" in url:
+            props = [{"CID": 11985, "MolecularFormula": "C10H10Fe", "Title": "Ferrocene"}]
+            return {"PropertyTable": {"Properties": props}}
+        return None
+
+    monkeypatch.setattr(remote, "_get_json", fake)
+    r = names.find_compound("zzferrocene", by="name")
+    assert r["source"] == "pubchem"
+    assert r["license"] == "public-domain"
+    assert r["matches"][0] == {"name": "Ferrocene", "formula": "C10H10Fe"}
+
+
+def test_remote_falls_through_pubchem_miss_to_wikidata(monkeypatch) -> None:
+    # PubChem 404s (None), so the query falls through to Wikidata, which answers.
+    monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    p274 = [{"mainsnak": {"snaktype": "value", "datavalue": {"value": "C42H42"}}}]
+    _canned(
+        monkeypatch,
+        {
+            "wbsearchentities": {"search": [{"id": "Q12345"}]},
+            "wbgetentities": {
+                "entities": {
+                    "Q12345": {
+                        "labels": {"en": {"value": "zzwikidatonly"}},
+                        "aliases": {"en": []},
+                        "claims": {"P274": p274},
+                    }
+                }
+            },
+        },
+    )  # PubChem URL matches no needle -> _get_json returns None -> fall through
+    r = names.find_compound("zzwikidatonly", by="name")
+    assert r["source"] == "wikidata"
+    assert r["matches"][0] == {"name": "zzwikidatonly", "formula": "C42H42"}
 
 
 def test_bundled_hit_skips_remote(monkeypatch) -> None:

@@ -202,11 +202,23 @@ Keep every item very short (1-5 sentences).
             per-source. names.CacheSource iterates list_sources() and returns the
             first file with a hit (with its provenance); RemoteSource writes/
             negcaches under remote.SOURCE. Env var renamed CACHE_DB -> CACHE_DIR.
-    [ ] 2.1 PubChem (NCBI/NLM) -- public domain. Live PUG-REST lookup:
+    [x] 2.1 PubChem (NCBI/NLM) -- public domain. Live PUG-REST lookup:
             name -> /compound/name/{name}/property/MolecularFormula,Title/JSON;
             formula -> /compound/fastformula/{formula}/cids/JSON; partial ->
             /autocomplete/compound/{prefix}/json. Resolves trivial + systematic
             names + CAS numbers. Reliable; rate limit 5 req/s, 400 req/min.
+            DONE: src/mcp_molecules/remote.py -- pubchem_by_name (name endpoint;
+            queried name kept as an alias when it differs from PubChem's Title)
+            and pubchem_by_formula (fastformula -> cids, then one cid property
+            fetch for Title + MolecularFormula). MolecularFormula normalized via
+            hill_formula; same fail-soft _get_json as 2.2 (404/timeout -> [], a
+            PubChem 404 on an unknown name degrades cleanly). Remote sources are
+            now a Fetcher registry (remote.FETCHERS): PubChem first, then Wikidata.
+            names.RemoteSource walks it, returning the first source's hit and
+            caching it under that source's per-source file (2.0) with its own
+            negcache; source_license now reports the producing source. Autocomplete
+            (partial) not wired -- exact name + formula cover the tool's needs.
+            Mocked unit tests in test_cache_remote.py + live test_functional_pubchem.py.
     [x] 2.2 Wikidata -- CC0 1.0 (public domain, no attribution obligation).
             A single-record lookup is light, so the bulk-extraction flakiness
             from 1.2.1 mostly does not bite here. name -> entity via the API

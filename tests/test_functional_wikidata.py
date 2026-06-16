@@ -66,6 +66,13 @@ def test_find_chemical_compound_resolves_wikidata_only_compound(monkeypatch) -> 
 
     # Opt back into the network (conftest forces it off for hermeticity).
     monkeypatch.setenv("MCP_MOLECULES_ONLINE", "1")
+    # Isolate the Wikidata path: PubChem is queried first at runtime and also has
+    # ferrocene, so pin the fetcher registry to Wikidata to exercise it end-to-end.
+    monkeypatch.setattr(
+        remote,
+        "FETCHERS",
+        [f for f in remote.FETCHERS if f.source == remote.WIKIDATA_SOURCE],
+    )
 
     result = find_chemical_compound(WIKIDATA_ONLY, by="name")
     assert result["source"] == "wikidata"

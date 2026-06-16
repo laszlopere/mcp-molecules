@@ -197,45 +197,55 @@ class CacheSource:
 class RemoteSource:
     """Tier 3: the opt-in online fallback (TODO 1.4.3).
 
-    On a miss in Tiers 1+2, fetches the record from the live database
-    (:mod:`mcp_molecules.remote`, Wikidata), writes any hit into the Tier-2 cache,
-    and returns it. Network is opt-in and fail-soft: when disabled or offline the
-    fetchers return ``[]`` and lookups degrade to "not found". A genuine empty
-    result is remembered in the negative cache (with a TTL) so repeated misses do
-    not re-query; network errors are not, so a flaky connection retries later.
+    On a miss in Tiers 1+2, walks the live-database fetchers (:data:`remote.FETCHERS`
+    -- PubChem then Wikidata) in order, returning the first source with a hit and
+    writing it into that source's Tier-2 cache file (TODO 2.0). Network is opt-in
+    and fail-soft: when disabled or offline the fetchers return ``[]`` and lookups
+    degrade to "not found". A per-source empty result is remembered in that
+    source's negative cache (with a TTL) so repeated misses do not re-query;
+    network errors are not, so a flaky connection retries later. :meth:`source_license`
+    reports the provenance of the fetcher that last produced a hit, read by
+    :func:`find_compound` right after.
     """
 
     label = "remote"
 
+    def __init__(self) -> None:
+        self._last: tuple[str, str] = ("", "")
+
     def by_name(self, name: str) -> list[dict]:
-        if not remote.online_enabled():
-            return []
-        key = normalize_name(name)
-        if cache.is_negative(remote.SOURCE, key, "name"):
-            return []
-        records = remote.wikidata_by_name(name)
-        if not records:
-            cache.remember_miss(remote.SOURCE, key, "name")
-            return []
-        cache.store(records, remote.SOURCE, remote.LICENSE)
-        return [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]
+        return self._fetch("name", normalize_name(name), lambda f: f.by_name(name))
 
     def by_formula(self, formula: str, limit: int) -> list[dict]:
-        if not remote.online_enabled():
-            return []
         key = cache.formula_key(formula)
-        if cache.is_negative(remote.SOURCE, key, "formula"):
-            return []
-        records = remote.wikidata_by_formula(formula, limit)
-        if not records:
-            cache.remember_miss(remote.SOURCE, key, "formula")
-            return []
-        cache.store(records, remote.SOURCE, remote.LICENSE)
-        out = [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]
+        out = self._fetch("formula", key, lambda f: f.by_formula(formula, limit))
         return out[:limit]
 
+    def _fetch(self, direction: str, key: str, call) -> list[dict]:
+        """Walk the fetchers for ``direction``, returning the first source's hit.
+
+        ``call`` invokes the right fetcher method; ``key`` is the normalized query
+        used for the per-source negative cache. Each source is skipped if it has a
+        fresh remembered miss; an empty fetch records one; a hit is cached and
+        returned, with the producing source's provenance stashed for
+        :meth:`source_license`.
+        """
+        if not remote.online_enabled():
+            return []
+        for fetcher in remote.FETCHERS:
+            if cache.is_negative(fetcher.source, key, direction):
+                continue
+            records = call(fetcher)
+            if not records:
+                cache.remember_miss(fetcher.source, key, direction)
+                continue
+            cache.store(records, fetcher.source, fetcher.license)
+            self._last = (fetcher.source, fetcher.license)
+            return [{"name": r["name"], "formula": f} for r in records for f in r["formulas"]]
+        return []
+
     def source_license(self) -> tuple[str, str]:
-        return remote.SOURCE, remote.LICENSE
+        return self._last
 
 
 # Lookup order: bundled subset -> writable user cache -> opt-in online fallback.
