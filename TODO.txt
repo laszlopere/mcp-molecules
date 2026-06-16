@@ -10,9 +10,32 @@ Keep every item very short (1-5 sentences).
 
 
 [ ] 0 Molecular weight calculator updates
+      MCP tool: molecular_weight_calculator (args: formula, unit=g/mol|kg/mol|
+      Da|u|kDa, uncertainty, monoisotopic, composition). Example:
+        request:  {"formula": "H2O"}
+        reply:    {"formula": "H2O", "unit": "g/mol", "weight": 18.01535,
+                   "uncertainty": null, "monoisotopic": false,
+                   "atoms": {"H": 2, "O": 1}, "formatted": "18.02 g/mol"}
     [x] 0.1 Accept Unicode subscript digits (U+2080-2089) in formulae in
             addition to normal ASCII numbers, e.g. parse "H₂O" the same as
             "H2O". Normalize subscripts to ASCII before parsing.
+    [ ] 0.2 Return all mass flavors at once. molecular_weight_calculator
+            currently supports two flavors, selected one at a time by the
+            monoisotopic flag: the standard atomic weight (average molar mass,
+            the default) and the monoisotopic mass (most abundant natural
+            isotope per element). Getting both forces a second round-trip. To
+            cut the AI request -> MCP server -> AI interpreting turnaround,
+            compute and return every flavor on every call (keep the flag for
+            back-compat / which one is "primary"), so the model never has to
+            re-ask for the other.
+    [ ] 0.3 Add the remaining mass flavors from 4.4 to the all-flavors output
+            (0.2). The three distinct, clearly-labeled flavors are:
+              - nominal      sum of integer mass numbers of the most abundant
+                             isotopes
+              - average      standard atomic weight (average molar mass)
+              - monoisotopic exact mass of the most abundant isotopes
+            0.2 already covers average and monoisotopic; nominal is the new one
+            to add. Return all three together so callers never conflate them.
 
 [ ] 1 Molecule name database tool (name -> formula and formula -> name)
       MCP tool: find_chemical_compound (args: query, by=auto|name|formula,
