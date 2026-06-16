@@ -15,6 +15,18 @@ Keep every item very short (1-5 sentences).
             "H2O". Normalize subscripts to ASCII before parsing.
 
 [ ] 1 Molecule name database tool (name -> formula and formula -> name)
+      MCP tool: find_chemical_compound (args: query, by=auto|name|formula,
+      limit). Examples:
+        request:  {"query": "aspirin"}
+        reply:    {"query": "aspirin", "interpreted_as": "name",
+                   "matches": [{"name": "Aspirin", "formula": "C9H8O4"}],
+                   "source": "pubchem", "license": "public-domain"}
+        request:  {"query": "C6H12O6", "by": "formula", "limit": 3}
+        reply:    {"query": "C6H12O6", "interpreted_as": "formula",
+                   "matches": [{"name": "An inositol", "formula": "C6H12O6"},
+                               {"name": "D-Glucose", "formula": "C6H12O6"},
+                               {"name": "Hexose", "formula": "C6H12O6"}],
+                   "source": "pubchem", "license": "public-domain"}
     [ ] 1.1 Design the storage format. The dataset is large (millions of
             names; many aliases per compound), so a flat CSV is a poor fit
             for fast lookups. Decide on an efficient, bundleable store that
@@ -132,6 +144,13 @@ Keep every item very short (1-5 sentences).
       On a miss in the pre-fetched cache (item 3), query the live database(s)
       per request, return the record, and cache it. Opt-in network; graceful
       offline fallback; negative caching with a TTL. See databases.txt (Tier 3).
+    [ ] 2.0 Per-source cache files: store each source's fetched records in its
+            own SQLite DB (e.g. names_cache_<source>.db) instead of the single
+            mixed-source names_cache.db, so sources can be added/updated/dropped
+            independently and the query layers them. Closes the 1.1.4 gap (one
+            DB per source): per-file provenance replaces the per-row source/
+            license columns; CacheSource (names.py) iterates the per-source
+            files in the user dir.
     [ ] 2.1 PubChem (NCBI/NLM) -- public domain. Live PUG-REST lookup:
             name -> /compound/name/{name}/property/MolecularFormula,Title/JSON;
             formula -> /compound/fastformula/{formula}/cids/JSON; partial ->
@@ -151,6 +170,24 @@ Keep every item very short (1-5 sentences).
             and that carry P274. wikidata_by_formula uses SPARQL on the Hill key.
             P274 normalized via hill_formula (raw NFKC fallback); descriptive UA;
             fail-soft _get_json (returns None on any timeout/HTTP/parse error).
+    [ ] 2.3 EPA DSSTox / CompTox -- US public domain (see 1.3.1). Live CCTE
+            Chemical API at api-ccte.epa.gov (free x-api-key header). name ->
+            /chemical/search/equal/{name} (or start-with/contain) returns
+            DTXSID hits; then /chemical/detail/search/by-dtxsid/{dtxsid} for
+            molFormula + preferredName + casrn. formula -> DTXSIDs via the
+            equivalent formula search. Normalize molFormula through hill_formula;
+            same fail-soft pattern as 2.2 (degrade to [] on any error). API key
+            from $MCP_MOLECULES_EPA_API_KEY (sent as x-api-key); unset -> skip
+            this source (treat like offline), so the keyless sources still work.
+    [ ] 2.4 ChEBI (EBI) -- CC BY 4.0 (attribution; see 1.3.2). Live ChEBI Web
+            Services at www.ebi.ac.uk/webservices/chebi/2.0. name ->
+            getLiteEntity?search={name}&searchCategory=ALL returns ChEBI IDs;
+            then getCompleteEntity?chebiId={id} for Formulae + chebiAsciiName.
+            formula -> getLiteEntity with searchCategory=FORMULA. Normalize
+            Formulae through hill_formula; keyless; fail-soft like 2.2 (degrade
+            to [] on any error). Attribution required: carry source/license
+            through to the result so it surfaces (the cache already records it
+            per record / per 2.0 per-source file).
 
 [ ] 3 Pre-fetched cache databases (bundled + user cache).
       Small SQLite stores read first, before any network call. Bundled subset
