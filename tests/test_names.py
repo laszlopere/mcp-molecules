@@ -181,6 +181,8 @@ def test_directions_routing() -> None:
 def test_find_compound_auto_name(db) -> None:
     r = names.find_compound("grape sugar")
     assert r["interpreted_as"] == "name"
+    # A name query has no formula to canonicalize.
+    assert r["normalized"] is None
     assert r["matches"][0] == {"name": "D-glucose", "formula": "C6H12O6"}
     assert r["source"] == "wikidata"
 
@@ -188,7 +190,17 @@ def test_find_compound_auto_name(db) -> None:
 def test_find_compound_auto_formula(db) -> None:
     r = names.find_compound("C₆H₁₂O₆")
     assert r["interpreted_as"] == "formula"
+    # Unicode subscripts + ordering folded to the Hill key actually searched.
+    assert r["normalized"] == "C6H12O6"
     assert r["matches"][0] == {"name": "D-glucose", "formula": "C6H12O6"}
+
+
+def test_find_compound_normalized_on_formula_miss(db) -> None:
+    # On a formula miss the Hill key still reports what was searched.
+    r = names.find_compound("Fe2(SO4)3", by="formula")
+    assert r["matches"] == []
+    assert r["interpreted_as"] == "formula"
+    assert r["normalized"] == "Fe2O12S3"
 
 
 def test_find_compound_override(db) -> None:

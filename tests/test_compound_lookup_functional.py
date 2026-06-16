@@ -29,9 +29,10 @@ _LICENSE = "public-domain"
 def test_result_contract_for_a_name_hit() -> None:
     r = find_chemical_compound("caffeine")
     # Exact key set the MCP tool promises its callers.
-    assert set(r) == {"query", "interpreted_as", "matches", "source", "license"}
+    assert set(r) == {"query", "interpreted_as", "normalized", "matches", "source", "license"}
     assert r["query"] == "caffeine"
     assert r["interpreted_as"] == "name"
+    assert r["normalized"] is None  # a name has no Hill key
     assert r["source"] == _SOURCE
     assert r["license"] == _LICENSE
     assert r["matches"] == [{"name": "Caffeine", "formula": "C8H10N4O2"}]
@@ -79,6 +80,8 @@ def test_name_resolves_to_formula(query: str, name: str, formula: str) -> None:
 def test_formula_resolves_to_name(formula: str, expected_name: str) -> None:
     r = find_chemical_compound(formula)
     assert r["interpreted_as"] == "formula"
+    # These inputs are already in Hill form, so the searched key matches.
+    assert r["normalized"] == formula
     assert r["matches"][0]["name"] == expected_name
     assert r["matches"][0]["formula"] == formula
 

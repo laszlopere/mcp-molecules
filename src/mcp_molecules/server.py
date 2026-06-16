@@ -336,8 +336,10 @@ def find_chemical_compound(
     resolves to its molecular formula(e); a formula resolves to the compound
     name(s) sharing it (isomers), ordered with the preferred name first. The
     direction is chosen by ``by``. Returns the ``query``, how it was interpreted
-    (``interpreted_as``), the ``matches`` (each ``{"name", "formula"}``, the
-    preferred result first), and the resolving ``source`` / ``license``.
+    (``interpreted_as``), the ``normalized`` Hill-system key the formula path
+    searched on (e.g. 'O6C6H12' -> 'C6H12O6'; ``null`` when read as a name), the
+    ``matches`` (each ``{"name", "formula"}``, the preferred result first), and
+    the resolving ``source`` / ``license``.
 
     Raises ``ValueError`` if nothing matches.
     """

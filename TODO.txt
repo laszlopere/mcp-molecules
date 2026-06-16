@@ -324,8 +324,17 @@ Keep every item very short (1-5 sentences).
             monoisotopic (exact) mass in one response -- people conflate them.
             DONE via 0.2 + 0.3: molecular_weight_calculator returns all three
             under "masses" on every call.
-    [ ] 4.5 Expose Hill-system formula normalization (canonicalize an input
+    [x] 4.5 Expose Hill-system formula normalization (canonicalize an input
             formula). hill_formula already exists internally.
+            DONE: surfaced as a return field rather than a new tool.
+            find_compound (names.py) now reports "normalized" -- the Hill key the
+            formula path actually searched on (e.g. "O6C6H12"/"C₆H₁₂O₆" ->
+            "C6H12O6"), or null when the query was read as a name. Set on both the
+            hit and miss paths, so a formula miss still tells the caller what key
+            was looked up. find_chemical_compound docstring + result contract
+            updated; tests in test_names.py (hit/miss) + test_compound_lookup_
+            functional.py. molecular_weight_calculator left as-is (its "atoms"
+            tally already disambiguates; no Hill string added there).
     [ ] 4.6 Formula arithmetic: add/subtract formulae (e.g. glucose - H2O, or
             sum a reaction's reactants) and report the net formula + mass.
     [ ] 4.7 Reaction balancing + stoichiometry: solve coefficients for an
