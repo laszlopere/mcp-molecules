@@ -15,7 +15,7 @@ from mcp_molecules import __version__
 from mcp_molecules.formula import parse_formula
 from mcp_molecules.isotopes import isotope_distribution as _isotope_distribution
 from mcp_molecules.names import find_compound
-from mcp_molecules.weights import load_weights
+from mcp_molecules.weights import load_nominal, load_weights
 
 # Output unit -> (scale factor from g/mol, default decimal places).
 _UNITS: dict[str, tuple[float, int]] = {
@@ -25,6 +25,22 @@ _UNITS: dict[str, tuple[float, int]] = {
     "u": (1.0, 2),
     "kDa": (1e-3, 5),
 }
+
+
+def _format_mass(value: float, sigma: float, unit: str, decimals: int) -> str:
+    """Render ``value`` (optionally ``value ± sigma``) at enough precision.
+
+    When ``sigma`` is positive the field is widened until the first significant
+    digit of the uncertainty shows; a non-positive ``sigma`` formats the value
+    alone.
+    """
+    if sigma > 0.0:
+        need = math.ceil(-math.log10(sigma))
+        if need > decimals:
+            decimals = need
+        return f"{value:.{decimals}f} ± {sigma:.{decimals}f} {unit}"
+    return f"{value:.{decimals}f} {unit}"
+
 
 mcp = FastMCP(
     "mcp-molecules",
@@ -84,9 +100,11 @@ def molecular_weight_calculator(
         bool,
         Field(
             description=(
-                "If true, use the most abundant natural isotope mass for each "
-                "element (mass-spectrometry monoisotopic mass) instead of the "
-                "standard atomic weight."
+                "Selects which mass flavor is reported at the top level (weight / "
+                "uncertainty / formatted): false (default) for the standard atomic "
+                "weight, true for the monoisotopic mass. All three flavors "
+                "(nominal, average, monoisotopic) are always returned under "
+                "'masses' regardless of this flag."
             )
         ),
     ] = False,
@@ -104,57 +122,85 @@ def molecular_weight_calculator(
 
     Parses ``formula`` into an atom tally, looks up each element's mass in the
     bundled NIST Atomic Weights and Isotopic Compositions database, and returns
-    the total weight in the requested ``unit``. Optionally propagates NIST
-    uncertainties (``uncertainty``), switches to monoisotopic masses
-    (``monoisotopic``), and/or reports percent composition by mass
-    (``composition``).
+    the total weight in the requested ``unit``. Every call reports all three
+    distinct mass flavors under ``masses`` so callers never conflate them or have
+    to re-ask:
+
+    * ``nominal`` -- sum of the integer mass numbers of the most abundant
+      isotopes,
+    * ``average`` -- the standard atomic weight (average molar mass),
+    * ``monoisotopic`` -- the exact mass of the most abundant isotopes.
+
+    The ``monoisotopic`` flag selects which of these is mirrored at the top level
+    (``weight`` / ``uncertainty`` / ``formatted``) and named by ``primary``.
+    Optionally propagates NIST uncertainties (``uncertainty``) and/or reports
+    percent composition by mass (``composition``).
 
     Raises ``ValueError`` for an unparseable formula or an unknown element.
     """
     tally = parse_formula(formula)
-    weights = load_weights(monoisotopic)
+    avg_weights = load_weights(False)
+    mono_weights = load_weights(True)
+    nominal_weights = load_nominal()
 
-    mw = 0.0
-    variance = 0.0
-    for symbol, count in tally:
-        entry = weights.get(symbol)
-        if entry is None:
-            raise ValueError(f"unknown element '{symbol}'")
-        weight, sigma = entry
-        mw += weight * count
-        variance += (count * sigma) ** 2
-    sigma_mw = math.sqrt(variance)
+    def _weigh(table: dict[str, tuple[float, float]]) -> tuple[float, float]:
+        mw = 0.0
+        variance = 0.0
+        for symbol, count in tally:
+            entry = table.get(symbol)
+            if entry is None:
+                raise ValueError(f"unknown element '{symbol}'")
+            weight, sigma = entry
+            mw += weight * count
+            variance += (count * sigma) ** 2
+        return mw, math.sqrt(variance)
+
+    avg_mw, avg_sigma = _weigh(avg_weights)
+    mono_mw, mono_sigma = _weigh(mono_weights)
+    nominal_mw = float(sum(nominal_weights[symbol] * count for symbol, count in tally))
 
     factor, decimals = _UNITS[unit]
-    value = mw * factor
-    display_sigma = sigma_mw * factor
-
     # Monoisotopic masses shift in the 4th decimal; widen so the shift shows.
-    if monoisotopic and decimals < 4:
-        decimals = 4
-    # Widen until the first significant digit of the uncertainty is visible.
-    if uncertainty and display_sigma > 0.0:
-        need = math.ceil(-math.log10(display_sigma))
-        if need > decimals:
-            decimals = need
+    mono_decimals = max(decimals, 4)
 
-    if uncertainty:
-        formatted = f"{value:.{decimals}f} ± {display_sigma:.{decimals}f} {unit}"
-    else:
-        formatted = f"{value:.{decimals}f} {unit}"
+    # (flavor name, mass in g/mol, sigma in g/mol, base decimal places).
+    specs = (
+        ("nominal", nominal_mw, 0.0, decimals),
+        ("average", avg_mw, avg_sigma, decimals),
+        ("monoisotopic", mono_mw, mono_sigma, mono_decimals),
+    )
+    masses: dict[str, dict] = {}
+    for name, mw, sigma, base_decimals in specs:
+        value = mw * factor
+        display_sigma = sigma * factor
+        masses[name] = {
+            "weight": value,
+            "uncertainty": display_sigma if uncertainty else None,
+            "formatted": _format_mass(
+                value, display_sigma if uncertainty else 0.0, unit, base_decimals
+            ),
+        }
+
+    primary = "monoisotopic" if monoisotopic else "average"
+    chosen = masses[primary]
 
     result: dict = {
         "formula": formula,
         "unit": unit,
-        "weight": value,
-        "uncertainty": display_sigma if uncertainty else None,
+        "weight": chosen["weight"],
+        "uncertainty": chosen["uncertainty"],
         "monoisotopic": monoisotopic,
+        "primary": primary,
         "atoms": {symbol: count for symbol, count in tally},
-        "formatted": formatted,
+        "masses": masses,
+        "formatted": chosen["formatted"],
     }
 
     if composition:
-        # Percent composition is reported by mass in g/mol, independent of unit.
+        # Percent composition is reported by mass in g/mol, using the primary
+        # flavor's per-element weights, independent of the output unit.
+        weights = mono_weights if monoisotopic else avg_weights
+        total = mono_mw if monoisotopic else avg_mw
         rows = []
         for symbol, count in tally:
             weight, _sigma = weights[symbol]
@@ -164,11 +210,11 @@ def molecular_weight_calculator(
                     "element": symbol,
                     "count": count,
                     "subtotal_g_per_mol": subtotal,
-                    "percent": (100.0 * subtotal / mw) if mw else 0.0,
+                    "percent": (100.0 * subtotal / total) if total else 0.0,
                 }
             )
         result["composition"] = rows
-        result["total_weight_g_per_mol"] = mw
+        result["total_weight_g_per_mol"] = total
 
     return result
 

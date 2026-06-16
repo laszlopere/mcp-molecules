@@ -120,3 +120,41 @@ def load_weights(monoisotopic: bool = False) -> dict[str, tuple[float, float]]:
             table[sym] = (float(ram["value"]), float(ram.get("uncertainty", 0.0)))
 
     return table
+
+
+@lru_cache(maxsize=1)
+def load_nominal() -> dict[str, int]:
+    """Build the ``{symbol: nominal mass number}`` table.
+
+    The nominal mass of an element is the integer mass number of its most
+    abundant natural isotope (or the most stable isotope for elements with no
+    natural abundance, e.g. Tc). Isotope-specific labels (``D``, ``T``) carry
+    their own mass number (2, 3). Summing these over a formula gives the nominal
+    molecular mass.
+    """
+    root = _load_root()
+    isos = root.get("isotopes")
+    if not isinstance(isos, list):
+        raise RuntimeError("NIST data: missing or non-array 'isotopes'")
+
+    table: dict[str, int] = {}
+    primary: dict[int, str] = {}
+
+    for r in isos:
+        z = r.get("atomic_number")
+        if not isinstance(z, int) or z < 1 or z >= _MAX_Z:
+            continue
+        sym = r.get("symbol")
+        if z not in primary:
+            primary[z] = sym
+            a = _most_abundant_mass_number(isos, z)
+            if a < 0:
+                saw = r.get("standard_atomic_weight")
+                if isinstance(saw, dict) and "most_stable_mass_number" in saw:
+                    a = int(saw["most_stable_mass_number"])
+            if a > 0:
+                table[sym] = a
+        elif primary[z] != sym and isinstance(r.get("mass_number"), int):
+            table[sym] = int(r["mass_number"])
+
+    return table

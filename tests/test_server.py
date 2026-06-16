@@ -124,6 +124,36 @@ def test_monoisotopic_widens_to_four_decimals() -> None:
     assert r["monoisotopic"] is True
 
 
+def test_all_mass_flavors_returned() -> None:
+    # Every call returns all three flavors regardless of the monoisotopic flag.
+    r = molecular_weight_calculator("H2O")
+    assert set(r["masses"]) == {"nominal", "average", "monoisotopic"}
+    assert r["primary"] == "average"
+    # Nominal is the integer mass-number sum (2*1 + 16).
+    assert r["masses"]["nominal"]["weight"] == pytest.approx(18.0)
+    assert r["masses"]["average"]["weight"] == pytest.approx(18.0153, abs=1e-3)
+    assert r["masses"]["monoisotopic"]["weight"] == pytest.approx(18.0106, abs=1e-3)
+    # Nominal mass is exact, so it formats without extra precision.
+    assert r["masses"]["nominal"]["formatted"] == "18.00 g/mol"
+
+
+def test_primary_mirrors_monoisotopic_flag() -> None:
+    r = molecular_weight_calculator("D2O", monoisotopic=True)
+    assert r["primary"] == "monoisotopic"
+    # The top-level weight/formatted mirror the chosen flavor.
+    assert r["weight"] == pytest.approx(r["masses"]["monoisotopic"]["weight"])
+    assert r["formatted"] == r["masses"]["monoisotopic"]["formatted"]
+    # Nominal D2O counts deuterium as mass number 2 (2*2 + 16).
+    assert r["masses"]["nominal"]["weight"] == pytest.approx(20.0)
+
+
+def test_flavor_uncertainty_propagates_per_flavor() -> None:
+    r = molecular_weight_calculator("H2O", uncertainty=True)
+    # Average carries the standard-atomic-weight interval; nominal is exact.
+    assert r["masses"]["average"]["uncertainty"] == pytest.approx(0.00046, abs=1e-4)
+    assert r["masses"]["nominal"]["uncertainty"] == 0.0
+
+
 def test_composition() -> None:
     r = molecular_weight_calculator("H2O", composition=True)
     comp = {row["element"]: row for row in r["composition"]}

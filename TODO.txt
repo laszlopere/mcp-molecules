@@ -11,15 +11,26 @@ Keep every item very short (1-5 sentences).
 
 [ ] 0 Molecular weight calculator updates
       MCP tool: molecular_weight_calculator (args: formula, unit=g/mol|kg/mol|
-      Da|u|kDa, uncertainty, monoisotopic, composition). Example:
+      Da|u|kDa, uncertainty, monoisotopic, composition). Every call returns all
+      three mass flavors (nominal/average/monoisotopic) under "masses"; the
+      monoisotopic flag picks which one is mirrored at the top level ("primary").
+      Example:
         request:  {"formula": "H2O"}
         reply:    {"formula": "H2O", "unit": "g/mol", "weight": 18.01535,
                    "uncertainty": null, "monoisotopic": false,
-                   "atoms": {"H": 2, "O": 1}, "formatted": "18.02 g/mol"}
+                   "primary": "average", "atoms": {"H": 2, "O": 1},
+                   "masses": {
+                     "nominal":      {"weight": 18.0,     "uncertainty": null,
+                                      "formatted": "18.00 g/mol"},
+                     "average":      {"weight": 18.01535, "uncertainty": null,
+                                      "formatted": "18.02 g/mol"},
+                     "monoisotopic": {"weight": 18.01056, "uncertainty": null,
+                                      "formatted": "18.0106 g/mol"}},
+                   "formatted": "18.02 g/mol"}
     [x] 0.1 Accept Unicode subscript digits (U+2080-2089) in formulae in
             addition to normal ASCII numbers, e.g. parse "H₂O" the same as
             "H2O". Normalize subscripts to ASCII before parsing.
-    [ ] 0.2 Return all mass flavors at once. molecular_weight_calculator
+    [x] 0.2 Return all mass flavors at once. molecular_weight_calculator
             currently supports two flavors, selected one at a time by the
             monoisotopic flag: the standard atomic weight (average molar mass,
             the default) and the monoisotopic mass (most abundant natural
@@ -28,7 +39,11 @@ Keep every item very short (1-5 sentences).
             compute and return every flavor on every call (keep the flag for
             back-compat / which one is "primary"), so the model never has to
             re-ask for the other.
-    [ ] 0.3 Add the remaining mass flavors from 4.4 to the all-flavors output
+            DONE: output now carries a "masses" dict with every flavor (each
+            {weight, uncertainty, formatted}) plus a "primary" key; the
+            monoisotopic flag only selects which flavor is mirrored at the top
+            level. avg + mono summed from load_weights(False/True).
+    [x] 0.3 Add the remaining mass flavors from 4.4 to the all-flavors output
             (0.2). The three distinct, clearly-labeled flavors are:
               - nominal      sum of integer mass numbers of the most abundant
                              isotopes
@@ -36,6 +51,9 @@ Keep every item very short (1-5 sentences).
               - monoisotopic exact mass of the most abundant isotopes
             0.2 already covers average and monoisotopic; nominal is the new one
             to add. Return all three together so callers never conflate them.
+            DONE: new weights.load_nominal() builds {symbol: mass number} (most
+            abundant / most-stable isotope; D=2, T=3); summed into the "nominal"
+            flavor. All three flavors returned together under "masses".
 
 [ ] 1 Molecule name database tool (name -> formula and formula -> name)
       MCP tool: find_chemical_compound (args: query, by=auto|name|formula,
@@ -269,8 +287,10 @@ Keep every item very short (1-5 sentences).
             (Na/K/NH4/...), and surfacing m/z on molecular_weight_calculator.
     [ ] 4.3 Degree of unsaturation (rings + double bonds):
             (2C + 2 + N - H - X) / 2. One-line saturation/aromaticity hint.
-    [ ] 4.4 Distinct, clearly-labeled mass flavors: nominal vs average vs
+    [x] 4.4 Distinct, clearly-labeled mass flavors: nominal vs average vs
             monoisotopic (exact) mass in one response -- people conflate them.
+            DONE via 0.2 + 0.3: molecular_weight_calculator returns all three
+            under "masses" on every call.
     [ ] 4.5 Expose Hill-system formula normalization (canonicalize an input
             formula). hill_formula already exists internally.
     [ ] 4.6 Formula arithmetic: add/subtract formulae (e.g. glucose - H2O, or
