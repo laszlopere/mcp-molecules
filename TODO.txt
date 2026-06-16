@@ -388,7 +388,10 @@ Keep every item very short (1-5 sentences).
             test_cache_remote.py (spawned multi-proc writers: no raise, 200/200
             rows, integrity ok). NFS/SMB caches stay out of scope (locking there
             is unreliable regardless).
-    [ ] 7.5 Update the PyPI description (pyproject [project].description): it
+    [x] 7.5 Update the PyPI description (pyproject [project].description): it
             still says only "molecular weight / molar mass calculation" and
             predates the find_chemical_compound and isotope_distribution tools.
             Ships to PyPI on the next version bump.
+            DONE: rewrote [project].description to cover calculations +
+            cached formula finder; also added isotope_distribution to the README
+            and a "you can ask things like" example block. Shipped in v0.2.0.

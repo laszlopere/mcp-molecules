@@ -23,6 +23,21 @@ weight: ask "what does C₆H₁₂O₆ weigh?" and it parses the formula, looks 
 element up in NIST data, and computes the molar mass rather than guessing it.
 More molecule-oriented tools are planned.
 
+You can ask things like:
+
+- *"What does a mole of glucose weigh?"* — resolves the name to C₆H₁₂O₆ and
+  computes the molar mass.
+- *"How much of Fe₂(SO₄)₃'s mass is iron?"* — per-element percent composition.
+- *"What's the molar mass of caffeine, with uncertainty?"* — propagates the NIST
+  standard uncertainties.
+- *"What does the mass spectrum of chloroform look like?"* — the natural chlorine
+  isotope pattern (the M, M+2, M+4 … peaks).
+- *"What's the [M+H]⁺ m/z for caffeine?"* — the protonated-ion mass.
+- *"Which compound has the formula C₉H₈O₄?"* — formula → name (aspirin, among its
+  isomers).
+- *"What are the isomers of C₂H₆O?"* — one formula, several names (ethanol and
+  dimethyl ether).
+
 ## What it gives you
 
 - **`molecular_weight_calculator`** — *(one example of what's here today)*
@@ -36,6 +51,16 @@ More molecule-oriented tools are planned.
   - `monoisotopic` — use the most abundant isotope of each element
     (mass-spectrometry monoisotopic mass) instead of the standard atomic weight.
   - `composition` — return the per-element percent composition by mass.
+- **`isotope_distribution`** — compute the natural isotopic pattern (the peaks a
+  mass spectrometer would see) for a formula, with each peak's mass, m/z, and
+  relative intensity, plus the monoisotopic and average masses. Parameters:
+  - `formula` — same syntax as `molecular_weight_calculator`.
+  - `charge` — `0` *(default)* reports neutral masses; a non-zero `n` reports m/z
+    for the `[M+nH]`/`[M-nH]` ion.
+  - `threshold` — drop peaks below this percent of the base peak *(default 0.1)*.
+  - `limit` — maximum peaks to return, most intense first *(default 10)*.
+  - `grouping` — `unit` *(default)* collapses to nominal integer masses; `exact`
+    keeps every resolved isotopologue.
 - **`find_chemical_compound`** — look up a compound by name or molecular
   formula against a bundled offline database (a PubChem subset). Parameters:
   - `query` — a name (`aspirin`, `acetylsalicylic acid`) or a formula
