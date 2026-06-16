@@ -222,11 +222,32 @@ def test_additional_parse_errors(bad: str) -> None:
         parse_formula(bad)
 
 
-@pytest.mark.parametrize("bad", [" H2O", "H2O ", "H2 O"])
-def test_whitespace_is_rejected(bad: str) -> None:
-    # The parser does not strip whitespace; any space is an unexpected character.
+@pytest.mark.parametrize("formula", [" H2O", "H2O ", "  H2O  ", "\tH2O\n"])
+def test_leading_and_trailing_whitespace_is_trimmed(formula: str) -> None:
+    # Surrounding whitespace is stripped before parsing (TODO 7.1).
+    assert parse_formula(formula) == [("H", 2), ("O", 1)]
+
+
+@pytest.mark.parametrize("bad", ["H2 O", "C 6 H12 O6", "Na Cl"])
+def test_internal_whitespace_is_still_rejected(bad: str) -> None:
+    # Whitespace *inside* a formula remains an unexpected character.
     with pytest.raises(FormulaError):
         parse_formula(bad)
+
+
+@pytest.mark.parametrize("bad", ["H0", "H00", "C0H4", "(CH2)0", "O2H0"])
+def test_zero_atom_count_is_rejected(bad: str) -> None:
+    # A zero multiplier is meaningless and now errors instead of yielding a
+    # count-0 entry (TODO 7.2).
+    with pytest.raises(FormulaError):
+        parse_formula(bad)
+
+
+def test_explicit_count_of_one_is_accepted() -> None:
+    # An explicit "1" is fine and equals the implicit (no-digit) count.
+    assert parse_formula("H1") == [("H", 1)]
+    assert parse_formula("H1") == parse_formula("H")
+    assert parse_formula("C1H4") == [("C", 1), ("H", 4)]
 
 
 # --- molecular_weight_calculator error surfacing ----------------------------

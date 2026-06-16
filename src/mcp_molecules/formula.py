@@ -42,7 +42,10 @@ class _Parser:
             self.pos += 1
         if self.pos == start:
             return 1
-        return int(self.src[start : self.pos])
+        count = int(self.src[start : self.pos])
+        if count == 0:
+            raise FormulaError(f"zero count at pos {start}")
+        return count
 
     def parse_term(self) -> _Term:
         c = self.peek()
@@ -84,9 +87,13 @@ def parse_formula(src: str) -> list[tuple[str, int]]:
     Unicode subscript digits (``U+2080``-``U+2089``) are accepted and treated
     as their ASCII equivalents, so ``"H₂O"`` parses the same as ``"H2O"``.
 
+    Leading and trailing whitespace is trimmed (so ``" H2O "`` parses like
+    ``"H2O"``); whitespace *inside* a formula (e.g. ``"H2 O"``) remains an error.
+    A zero atom count (e.g. ``"H0"``) is rejected.
+
     Raises :class:`FormulaError` on malformed input.
     """
-    src = src.translate(_SUBSCRIPT_DIGITS)
+    src = src.translate(_SUBSCRIPT_DIGITS).strip()
     parser = _Parser(src)
     terms = parser.parse_seq(in_group=False)
     if parser.peek() != "":
