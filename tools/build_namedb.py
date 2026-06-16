@@ -114,25 +114,31 @@ def build(
             "INSERT INTO compounds (id, canonical_name) VALUES (?, ?)",
             (cid, rec["name"]),
         )
-        norms = {normalize_name(n) for n in [rec["name"], *rec["aliases"]]}
-        norms.discard("")
-        con.executemany(
-            "INSERT OR IGNORE INTO names (name_norm, compound_id) VALUES (?, ?)",
-            [(nm, cid) for nm in norms],
-        )
-        n_names += len(norms)
+        # Canonicalize formulas first so the names pass can skip any alias that is
+        # just the compound's own formula spelled out (e.g. "C2H6O" as a synonym
+        # of ethanol): those belong to the formula index, not the name index, so
+        # a formula query routes through the formula path (TODO 7.3).
         seen: set[str] = set()
+        formula_keys: set[str] = set()
         for i, raw in enumerate(rec["formulas"]):
             canon, is_parsed = _canon_formula(raw)
             if not canon or canon in seen:
                 continue
             seen.add(canon)
+            formula_keys.add(normalize_name(canon))
             con.execute(
                 "INSERT OR IGNORE INTO formulas (compound_id, formula_norm, is_primary, is_parsed)"
                 " VALUES (?,?,?,?)",
                 (cid, canon, 1 if i == 0 else 0, is_parsed),
             )
             n_formulas += 1
+        norms = {normalize_name(n) for n in [rec["name"], *rec["aliases"]]}
+        norms -= {"", *formula_keys}
+        con.executemany(
+            "INSERT OR IGNORE INTO names (name_norm, compound_id) VALUES (?, ?)",
+            [(nm, cid) for nm in norms],
+        )
+        n_names += len(norms)
     # names needs no index (it is the clustered B-tree); formulas needs one for
     # the reverse (formula -> name) direction.
     con.execute("CREATE INDEX idx_formulas_norm ON formulas(formula_norm)")

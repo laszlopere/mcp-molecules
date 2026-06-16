@@ -345,11 +345,21 @@ Keep every item very short (1-5 sentences).
             DONE: parse_count raises FormulaError on a zero count (covers "H0",
             "H00", "(CH2)0", ...); explicit "H1" still parses to count 1,
             identical to the implicit no-digit count. Tests added.
-    [ ] 7.3 The bundled name DB indexes some formula strings as name aliases
+    [x] 7.3 The bundled name DB indexes some formula strings as name aliases
             (e.g. "C2H6O" -> Ethanol, "h2o" -> Water), so those queries resolve
             as interpreted_as="name" rather than "formula". Decide if this is
             wanted; if not, stop indexing bare formulae as names so formula
             queries route through the formula path.
+            DONE: decided NOT wanted -- a string that is a compound's own
+            formula belongs to the formula index, not the name index. build_namedb
+            now skips any name/alias whose normalized form equals one of that
+            compound's formula keys. Applied the same rule to the already-shipped
+            names_pubchem.db (deleted 271 formula-as-name rows, name_count meta
+            updated, VACUUMed, integrity ok) since there is no raw data on hand to
+            rebuild from. by="name" on a formula string now misses; auto still
+            resolves it via the formula path. Limitation: reordered/alternative
+            formula spellings stored as synonyms (e.g. "NaCl" vs Hill "ClNa") are
+            not caught, but auto-routing handles them as formulae anyway.
     [x] 7.4 Investigate concurrent access: when multiple instances of this MCP
             server run at once, can a race condition corrupt or break the shared
             Tier-2 cache (writes/negcache) or the per-source SQLite files?

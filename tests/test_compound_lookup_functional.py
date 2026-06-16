@@ -127,6 +127,17 @@ def test_pinning_name_direction_on_a_formula_misses() -> None:
     assert r["matches"][0]["name"] == "Caffeine"
 
 
+@pytest.mark.parametrize("formula", ["C2H6O", "H2O", "C8H10N4O2", "CH4"])
+def test_bare_formula_is_not_indexed_as_a_name(formula: str) -> None:
+    # The bundled DB no longer indexes a compound's own formula as a name alias
+    # (TODO 7.3), so forcing a name reading of a formula string always misses --
+    # formula strings route exclusively through the formula path.
+    with pytest.raises(ValueError, match="no chemical compound found"):
+        find_chemical_compound(formula, by="name")
+    # In auto mode the same string still resolves, but as a formula.
+    assert find_chemical_compound(formula)["interpreted_as"] == "formula"
+
+
 def test_formula_with_multiple_isomers_lists_them() -> None:
     r = find_chemical_compound("C2H6O", by="formula")
     found = {m["name"] for m in r["matches"]}
