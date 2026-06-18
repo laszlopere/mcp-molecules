@@ -8,12 +8,12 @@ import platform
 from importlib.metadata import version
 from typing import Annotated, Literal
 
-from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from mcp_molecules import __version__
 from mcp_molecules.formula import parse_formula
 from mcp_molecules.isotopes import isotope_distribution as _isotope_distribution
+from mcp_molecules.jsonfix import MoleculesFastMCP
 from mcp_molecules.names import find_compound
 from mcp_molecules.weights import load_nominal, load_weights
 
@@ -42,7 +42,7 @@ def _format_mass(value: float, sigma: float, unit: str, decimals: int) -> str:
     return f"{value:.{decimals}f} {unit}"
 
 
-mcp = FastMCP(
+mcp = MoleculesFastMCP(
     "mcp-molecules",
     instructions=(
         "Compute molecular weights / molar masses from chemical formulae, backed "

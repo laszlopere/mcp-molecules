@@ -429,6 +429,23 @@ Keep every item very short (1-5 sentences).
             DONE: rewrote [project].description to cover calculations +
             cached formula finder; also added isotope_distribution to the README
             and a "you can ask things like" example block. Shipped in v0.2.0.
+    [x] 7.6 Tolerate LLM-mangled tool-call JSON (ported from mcp-abacus TODO 43).
+            LLMs sometimes send `arguments` as a double-encoded JSON *string*, or
+            with barewords / single quotes / trailing commas; the call then dies
+            before the tool runs and the model gets a cryptic protocol error it
+            loops on.
+            DONE: added json-repair dep and src/mcp_molecules/jsonfix.py. Fix A:
+            a stdio stream interposer (run_stdio_repaired, used by __main__)
+            repairs stringified `arguments` while still loosely-typed
+            JSONRPCRequest.params -- before the session's strict validation; an
+            unrepairable blob gets an actionable -32700 parse-error reply instead
+            of a bare -32602. Fix B: MoleculesFastMCP subclass rewrites only
+            FastMCP's per-tool pydantic ValidationError (ToolError.__cause__) into
+            "argument 'formula' expected a string, but received 123 (int)" -- no
+            pydantic URL/stack; tool-body errors pass through. No SDK types
+            patched. Tests in test_jsonfix.py: pure helpers per offender + garbage
+            guard, the interposer router, Fix B reshape vs body-error passthrough,
+            and a raw-stdio e2e sending a STRING arguments blob.
 
 [ ] 8 2D representation (structural formula) download. Resolve a compound to a
       2D structure -- connection table (MOL/SDF), rendered image (PNG/SVG), or

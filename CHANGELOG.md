@@ -5,6 +5,21 @@ All notable changes to **mcp-molecules** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Tolerant parsing of LLM-mangled tool-call arguments. When a client sends a
+  call's `arguments` as a double-encoded JSON *string* (or with barewords,
+  single quotes, or trailing commas), a stdio interposer now repairs it before
+  the call is rejected; an unrepairable payload gets an actionable `-32700`
+  parse error instead of a cryptic protocol failure. Adds a `json-repair`
+  dependency.
+
+### Changed
+- Wrong-shape arguments (missing field or wrong type) now return a clear message
+  naming the field and the expected-vs-received type (e.g. "argument 'formula'
+  expected a string, but received 123 (int)") rather than raw pydantic output.
+
 ## [0.2.0] - 2026-06-16
 
 ### Added

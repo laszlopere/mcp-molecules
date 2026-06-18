@@ -15,6 +15,7 @@ authors = [
 ]
 keywords = ["mcp", "chemistry", "molecular-weight", "molar-mass", "nist"]
 dependencies = [
+    "json-repair>=0.61.0",
     "mcp>=1.2",
 ]
 
