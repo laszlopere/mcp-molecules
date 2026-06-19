@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-19
+
 ### Added
 - Tolerant parsing of LLM-mangled tool-call arguments. When a client sends a
   call's `arguments` as a double-encoded JSON *string* (or with barewords,
