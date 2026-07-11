@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from mcp_molecules import __version__
+from mcp_molecules.elemental import infer_formula as _infer_formula
 from mcp_molecules.formula import parse_formula
 from mcp_molecules.isotopes import isotope_distribution as _isotope_distribution
 from mcp_molecules.jsonfix import MoleculesFastMCP
@@ -348,3 +349,79 @@ def find_chemical_compound(
     if not result["matches"]:
         raise ValueError(f"no chemical compound found for {query!r}")
     return result
+
+
+@mcp.tool()
+def elemental_analysis(
+    percentages: Annotated[
+        dict[str, float],
+        Field(
+            description=(
+                "Per-element mass percentages, mapping element symbols to their "
+                "percent by mass, e.g. {'C': 40.0, 'H': 6.71, 'O': 53.29}. These "
+                "are the numbers a combustion / CHN analyzer reports. Values must "
+                "be positive."
+            )
+        ),
+    ],
+    molar_mass: Annotated[
+        float | None,
+        Field(
+            description=(
+                "Known molar mass in g/mol. When given, the empirical formula is "
+                "scaled to the nearest whole multiple to report the molecular "
+                "formula. Omit to get only the empirical formula."
+            ),
+            gt=0.0,
+        ),
+    ] = None,
+    balance: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Element assigned the remainder up to 100%. CHN analysis measures "
+                "only carbon, hydrogen and nitrogen, so oxygen is found by "
+                "difference: pass balance='O'. Must not also appear in "
+                "percentages."
+            )
+        ),
+    ] = None,
+    max_multiplier: Annotated[
+        int,
+        Field(
+            description=(
+                "Largest integer the mole ratios are scaled by when searching for "
+                "whole-number atom counts (handles ratios like 1:1.5 that need "
+                "doubling). Raise it for formulae with large subscripts."
+            ),
+            ge=1,
+            le=100,
+        ),
+    ] = 12,
+) -> dict:
+    """Infer a chemical formula from elemental mass percentages (inverse analysis).
+
+    The inverse of percent composition: given each element's mass percent -- what
+    a combustion / CHN elemental analyzer reports -- recover the best-fit
+    empirical formula, and, when ``molar_mass`` is also known, the molecular
+    formula. Masses come from the bundled NIST standard atomic weights, so the
+    computation is offline and deterministic.
+
+    Assumes a 100 g sample, converts each percentage to relative moles via the
+    atomic weights, normalises to whole-number atom ratios (searching integer
+    multipliers up to ``max_multiplier``), and reduces to the empirical formula.
+    Use ``balance`` to assign an unmeasured element (typically oxygen) the
+    remainder up to 100%.
+
+    Returns the ``resolved_percentages`` (including any balance element), the
+    ``empirical_formula`` and its weight, the ``molecular_formula`` (``null``
+    without a molar mass) with its ``molecular_multiplier``, and a ``fit`` block
+    -- the ``predicted_percentages`` the returned formula actually implies, the
+    per-element ``residuals``, and the ``rms_error`` / ``max_abs_error`` in
+    percentage points. Any data-quality ``warnings`` (percentages not summing to
+    100%, a poor fit, a molar mass far from a whole multiple) are listed.
+
+    Raises ``ValueError`` on an unknown element, a non-positive percentage, or
+    percentages leaving no remainder for the balance element.
+    """
+    return _infer_formula(percentages, molar_mass, balance, max_multiplier)

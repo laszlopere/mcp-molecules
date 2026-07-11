@@ -356,7 +356,7 @@ Keep every item very short (1-5 sentences).
             mol<->gram conversion, limiting reagent, theoretical yield.
     [ ] 4.8 Solution/prep math: molarity <-> mass <-> volume, dilution
             (C1V1=C2V2), ppm/molal. Needs only molar mass.
-    [ ] 4.9 Inverse elemental analysis: given target mass %s (CHN), find the
+    [x] 4.9 Inverse elemental analysis: given target mass %s (CHN), find the
             best-fit formula. Inverse of percent composition.
 
 [ ] 5 Calculator extensions needing a small bundled static table (still

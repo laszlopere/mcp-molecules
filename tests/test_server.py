@@ -32,6 +32,7 @@ def test_tools_registered() -> None:
     assert "molecular_weight_calculator" in names
     assert "find_chemical_compound" in names
     assert "isotope_distribution" in names
+    assert "elemental_analysis" in names
     # The directional tools were folded into find_chemical_compound.
     assert "name_to_formula" not in names
     assert "formula_to_name" not in names

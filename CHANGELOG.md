@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `elemental_analysis` tool: inverse elemental analysis (the inverse of percent
+  composition). Given per-element mass percentages -- what a combustion / CHN
+  analyzer reports -- it recovers the best-fit empirical formula, and, given the
+  molar mass, scales up to the molecular formula. Supports a `balance` element
+  (e.g. oxygen by difference in CHN analysis) and reports the fit (predicted
+  composition, residuals, RMS error) plus data-quality warnings. Offline and
+  deterministic, backed by the bundled NIST standard atomic weights.
+
 ## [0.3.0] - 2026-06-19
 
 ### Added
