@@ -361,8 +361,10 @@ Keep every item very short (1-5 sentences).
 
 [ ] 5 Calculator extensions needing a small bundled static table (still
       offline). A tiny per-element properties table, no network.
-    [ ] 5.1 Empirical -> molecular formula given a measured molar mass
+    [x] 5.1 Empirical -> molecular formula given a measured molar mass
             (multiply the empirical unit to the nearest integer multiple).
+            Covered by 4.9: elemental_analysis scales the empirical formula up
+            to the molecular one when a molar_mass is given.
     [ ] 5.2 Per-element property lookups: valence, electronegativity,
             group/period, common oxidation states. Enables oxidation-state
             assignment for simple formulae.
@@ -469,3 +471,20 @@ Keep every item very short (1-5 sentences).
     [ ] 8.5 ChEBI -- CC BY (attribution). MOL/SDF structures.
     [ ] 8.6 ChEMBL -- CC BY-SA (share-alike). SMILES/MOL.
     [ ] 8.7 OPSIN + RDKit/Open Babel -- generate 2D locally, no DB to ship.
+
+[ ] 9 More searches over the online sources already wired (item 2). Same
+      fail-soft, opt-in network.
+    [ ] 9.1 Resolve by structure identifier: InChIKey / InChI / SMILES ->
+            name/formula (and back). PubChem inchikey/smiles/inchi endpoints,
+            Wikidata P235/P234/P233/P2017, EPA equal-search. Fits the current
+            record shape; InChIKey is the exact structural key.
+    [ ] 9.2 Synonym enumeration: all known names for a compound. PubChem
+            /compound/cid/{cid}/synonyms. Fills the aliases field.
+    [ ] 9.3 Cross-reference IDs: one compound -> its IDs across databases
+            (CID, CAS, DTXSID, ChEBI, InChIKey, QID). Wikidata PIDs mainly.
+    [ ] 9.4 Substring / prefix name search (discovery, not exact match). EPA
+            start-with/contains, PubChem autocomplete. Doesn't fit the
+            resolve-to-one-record cache.
+    [ ] 9.5 Property lookup we can't compute offline: IUPAC name, SMILES,
+            InChIKey (in scope); XLogP, TPSA, density, mp/bp (scope creep,
+            not deterministic-offline). Breaks the name<->formula record shape.
