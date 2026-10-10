@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import threading
 import unicodedata
 from functools import lru_cache
 from importlib.resources import as_file, files
@@ -33,6 +34,11 @@ class NameDBUnavailable(RuntimeError):
     """Raised when the bundled name database is missing."""
 
 
+# The SDK runs sync tools on worker threads that share the one cached
+# connection; concurrent use of a connection fails with sqlite3.InterfaceError.
+_lock = threading.Lock()
+
+
 @lru_cache(maxsize=1)
 def _connect() -> sqlite3.Connection:
     resource = files("mcp_molecules.data").joinpath(_DB_FILE)
@@ -49,7 +55,8 @@ def _connect() -> sqlite3.Connection:
 
 @lru_cache(maxsize=1)
 def _meta() -> dict[str, str]:
-    rows = _connect().execute("SELECT key, value FROM meta").fetchall()
+    with _lock:
+        rows = _connect().execute("SELECT key, value FROM meta").fetchall()
     return {r["key"]: r["value"] for r in rows}
 
 
@@ -68,21 +75,22 @@ def lookup_formula(name: str) -> list[dict]:
     key = normalize_name(name)
     if not key:
         return []
-    rows = (
-        _connect()
-        .execute(
-            """
-        SELECT c.canonical_name AS name, f.formula_norm AS formula
-        FROM names n
-        JOIN compounds c ON c.id = n.compound_id
-        JOIN formulas f ON f.compound_id = c.id
-        WHERE n.name_norm = ?
-        ORDER BY f.is_primary DESC, c.id ASC
-        """,
-            (key,),
+    with _lock:
+        rows = (
+            _connect()
+            .execute(
+                """
+            SELECT c.canonical_name AS name, f.formula_norm AS formula
+            FROM names n
+            JOIN compounds c ON c.id = n.compound_id
+            JOIN formulas f ON f.compound_id = c.id
+            WHERE n.name_norm = ?
+            ORDER BY f.is_primary DESC, c.id ASC
+            """,
+                (key,),
+            )
+            .fetchall()
         )
-        .fetchall()
-    )
     seen: set[tuple[str, str]] = set()
     out: list[dict] = []
     for r in rows:
@@ -108,21 +116,22 @@ def lookup_names(formula: str, limit: int = 5) -> list[dict]:
         key = unicodedata.normalize("NFKC", formula).strip()
     if not key:
         return []
-    rows = (
-        _connect()
-        .execute(
-            """
-        SELECT c.canonical_name AS name
-        FROM formulas f
-        JOIN compounds c ON c.id = f.compound_id
-        WHERE f.formula_norm = ?
-        ORDER BY c.id ASC
-        LIMIT ?
-        """,
-            (key, limit),
+    with _lock:
+        rows = (
+            _connect()
+            .execute(
+                """
+            SELECT c.canonical_name AS name
+            FROM formulas f
+            JOIN compounds c ON c.id = f.compound_id
+            WHERE f.formula_norm = ?
+            ORDER BY c.id ASC
+            LIMIT ?
+            """,
+                (key, limit),
+            )
+            .fetchall()
         )
-        .fetchall()
-    )
     return [{"name": r["name"], "formula": key} for r in rows]
 
 

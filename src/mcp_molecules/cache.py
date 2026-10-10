@@ -30,6 +30,7 @@ from __future__ import annotations
 import functools
 import os
 import sqlite3
+import threading
 import time
 import unicodedata
 from contextlib import suppress
@@ -45,6 +46,13 @@ _DEFAULT_NEGCACHE_TTL = 7 * 24 * 3600  # one week
 # cache is shared by every running server instance, so concurrent writers
 # contend; WAL plus this timeout serialize them instead of failing immediately.
 _BUSY_TIMEOUT_S = 15.0
+
+# Serializes every use of the cached connections within this process. The MCP
+# SDK runs sync tools on worker threads that all share one connection per
+# source; concurrent use of a connection fails with sqlite3.InterfaceError, and
+# one thread's commit/rollback could land inside another's write transaction.
+# Busy-timeout + WAL only order separate processes.
+_lock = threading.Lock()
 
 _FILE_PREFIX = "names_cache_"
 _FILE_SUFFIX = ".db"
@@ -172,13 +180,14 @@ def _fail_soft(default):
     def deco(fn):
         @functools.wraps(fn)
         def wrap(source: str, *args, **kwargs):
-            try:
-                return fn(source, *args, **kwargs)
-            except sqlite3.OperationalError:
-                with suppress(sqlite3.OperationalError):
-                    if cache_path(source).exists():
-                        _connect(source).rollback()
-                return default
+            with _lock:
+                try:
+                    return fn(source, *args, **kwargs)
+                except sqlite3.OperationalError:
+                    with suppress(sqlite3.OperationalError):
+                        if cache_path(source).exists():
+                            _connect(source).rollback()
+                    return default
 
         return wrap
 
@@ -322,16 +331,17 @@ def store(records: list[dict], source: str, license: str) -> int:
     just is not cached this time and re-caches on a later call.
     """
     con = None
-    try:
-        con = _connect(source)
-        added = _store(con, records, source, license)
-        con.commit()
-        return added
-    except sqlite3.OperationalError:
-        if con is not None:
-            with suppress(sqlite3.OperationalError):
-                con.rollback()
-        return 0
+    with _lock:
+        try:
+            con = _connect(source)
+            added = _store(con, records, source, license)
+            con.commit()
+            return added
+        except sqlite3.OperationalError:
+            if con is not None:
+                with suppress(sqlite3.OperationalError):
+                    con.rollback()
+            return 0
 
 
 def _store(con: sqlite3.Connection, records: list[dict], source: str, license: str) -> int:

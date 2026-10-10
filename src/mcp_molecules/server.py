@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 László Pere
 
-"""FastMCP application for mcp-molecules. All tools register on this app."""
+"""MCPServer application for mcp-molecules. All tools register on this app."""
 
 import math
 import platform
@@ -14,7 +14,7 @@ from mcp_molecules import __version__
 from mcp_molecules.elemental import infer_formula as _infer_formula
 from mcp_molecules.formula import parse_formula
 from mcp_molecules.isotopes import isotope_distribution as _isotope_distribution
-from mcp_molecules.jsonfix import MoleculesFastMCP
+from mcp_molecules.jsonfix import MoleculesMCPServer
 from mcp_molecules.names import find_compound
 from mcp_molecules.weights import load_nominal, load_weights
 
@@ -43,8 +43,9 @@ def _format_mass(value: float, sigma: float, unit: str, decimals: int) -> str:
     return f"{value:.{decimals}f} {unit}"
 
 
-mcp = MoleculesFastMCP(
+mcp = MoleculesMCPServer(
     "mcp-molecules",
+    version=__version__,
     instructions=(
         "Compute molecular weights / molar masses from chemical formulae, backed "
         "by the NIST Atomic Weights and Isotopic Compositions database. Parses "

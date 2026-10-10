@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   composition, residuals, RMS error) plus data-quality warnings. Offline and
   deterministic, backed by the bundled NIST standard atomic weights.
 
+### Changed
+- Runs on the `mcp` SDK 2.x (`mcp>=2.3.0,<3`), where `FastMCP` became
+  `MCPServer`. Tools, their schemas and their error messages are unchanged;
+  `serverInfo.version` now reports the mcp-molecules version instead of the
+  SDK's.
+
+### Fixed
+- Concurrent tool calls no longer share an SQLite connection unsafely. The SDK
+  now runs the (synchronous) tools on worker threads, and the bundled name
+  database and the online-lookup cache each keep one connection per process;
+  overlapping lookups raised `sqlite3.InterfaceError` or lost cache writes.
+  Each connection is now used by one thread at a time.
+
 ## [0.3.1] - 2026-10-10
 
 ### Fixed

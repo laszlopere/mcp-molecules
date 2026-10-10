@@ -18,7 +18,7 @@ import sys
 
 import pytest
 from mcp.shared.message import SessionMessage
-from mcp.types import PARSE_ERROR, JSONRPCError, JSONRPCMessage, JSONRPCRequest
+from mcp.types import PARSE_ERROR, JSONRPCError, JSONRPCRequest
 from pydantic import BaseModel, ValidationError
 
 from mcp_molecules.jsonfix import (
@@ -68,14 +68,14 @@ def _call_request(arguments: object, *, request_id: int = 1, name: str = "info")
         method="tools/call",
         params={"name": name, "arguments": arguments},
     )
-    return SessionMessage(message=JSONRPCMessage(root))
+    return SessionMessage(message=root)
 
 
 def test_process_repairs_stringified_arguments() -> None:
     forward, error = process_incoming(_call_request('{"formula": "H2O"}'))
     assert error is None
     assert forward is not None
-    root = forward.message.root
+    root = forward.message
     assert isinstance(root, JSONRPCRequest)
     assert root.params is not None
     assert root.params["arguments"] == {"formula": "H2O"}
@@ -92,7 +92,7 @@ def test_process_emits_parse_error_for_unrepairable_arguments() -> None:
     forward, error = process_incoming(_call_request("totally not json", name="molecular_weight"))
     assert forward is None
     assert error is not None
-    root = error.message.root
+    root = error.message
     assert isinstance(root, JSONRPCError)
     assert root.id == 1
     assert root.error.code == PARSE_ERROR
@@ -102,7 +102,7 @@ def test_process_emits_parse_error_for_unrepairable_arguments() -> None:
 
 def test_process_ignores_non_tool_call_requests() -> None:
     root = JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
-    msg = SessionMessage(message=JSONRPCMessage(root))
+    msg = SessionMessage(message=root)
     forward, error = process_incoming(msg)
     assert error is None
     assert forward is msg
@@ -142,13 +142,13 @@ def test_format_is_free_of_pydantic_url_and_stack() -> None:
     assert "argument 'limit' expected an integer" in msg
 
 
-# --- Fix B integration: the FastMCP subclass reshapes real shape errors -----
+# --- Fix B integration: the MCPServer subclass reshapes real shape errors ---
 
 
 def test_call_tool_reshapes_wrong_type_argument() -> None:
     import asyncio
 
-    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.mcpserver.exceptions import ToolError
 
     from mcp_molecules.server import mcp
 
@@ -164,16 +164,39 @@ def test_call_tool_reshapes_wrong_type_argument() -> None:
 def test_call_tool_leaves_tool_body_errors_alone() -> None:
     import asyncio
 
-    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.mcpserver.exceptions import ToolError
 
     from mcp_molecules.server import mcp
 
     # A well-shaped call whose formula is unparseable raises inside the tool
-    # body; that error must pass through unchanged (not be reshaped as a
-    # validation error).
+    # body; that error must not be reshaped as a validation error, and its
+    # reason must reach the model (the SDK alone would drop it).
     with pytest.raises(ToolError) as excinfo:
         asyncio.run(mcp.call_tool("molecular_weight_calculator", {"formula": "not-a-formula"}))
-    assert "Invalid arguments for tool" not in str(excinfo.value)
+    msg = str(excinfo.value)
+    assert "Invalid arguments for tool" not in msg
+    assert msg == (
+        "Error executing tool molecular_weight_calculator: expected element or '(' at pos 0"
+    )
+
+
+def test_call_tool_keeps_genuine_crashes_opaque(monkeypatch) -> None:
+    import asyncio
+
+    from mcp.server.mcpserver.exceptions import UnexpectedToolError
+
+    from mcp_molecules import server
+    from mcp_molecules.server import mcp
+
+    # Only ValueError (the tools' bad-input signal) gets its message back; any
+    # other exception is a bug whose details must not leak to the client.
+    def crash(*_a, **_k):
+        raise RuntimeError("internal detail /home/secret")
+
+    monkeypatch.setattr(server, "parse_formula", crash)
+    with pytest.raises(UnexpectedToolError) as excinfo:
+        asyncio.run(mcp.call_tool("molecular_weight_calculator", {"formula": "H2O"}))
+    assert str(excinfo.value) == "Error executing tool molecular_weight_calculator"
 
 
 # --- end-to-end: raw stdio with a STRING arguments blob ---------------------

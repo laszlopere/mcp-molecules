@@ -136,6 +136,71 @@ def test_concurrent_writers_do_not_corrupt_or_raise(tmp_path) -> None:
     con.close()
 
 
+def test_store_holds_the_connection_lock(monkeypatch) -> None:
+    # The SDK runs sync tools on worker threads that share one connection per
+    # source, so a write transaction must not interleave with another thread's
+    # use of that connection.
+    seen = []
+    real_store = cache._store
+
+    def spy(*args, **kwargs):
+        seen.append(cache._lock.locked())
+        return real_store(*args, **kwargs)
+
+    monkeypatch.setattr(cache, "_store", spy)
+    rec = {"ref": "Q283", "name": "water", "aliases": [], "formulas": ["H2O"]}
+    assert cache.store([rec], "wikidata", "CC0-1.0") == 1
+    assert seen == [True]
+    assert not cache._lock.locked()
+
+
+def test_concurrent_threads_share_a_connection_safely() -> None:
+    # Same shape as the cross-process test, but threads in one process sharing
+    # the cached connection -- how the server runs concurrent tool calls.
+    import threading
+
+    def writer(n: int) -> None:
+        for i in range(50):
+            rec = {"ref": f"{n}-{i}", "name": f"c{n}-{i}", "aliases": [], "formulas": ["H2O"]}
+            cache.store([rec], "wikidata", "CC0")
+            cache.lookup_formula("wikidata", f"c{n}-{i}")
+            cache.is_negative("wikidata", f"miss-{n}-{i}", "name")
+            cache.remember_miss("wikidata", f"miss-{n}-{i}", "name")
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    con = cache._connect("wikidata")
+    assert con.execute("SELECT COUNT(*) FROM compounds").fetchone()[0] == 200
+    assert con.execute("SELECT COUNT(*) FROM negcache").fetchone()[0] == 200
+
+
+def test_bundled_names_db_is_thread_safe() -> None:
+    # The bundled name DB is one cached read-only connection shared by every
+    # worker thread; concurrent queries must not raise sqlite3.InterfaceError.
+    import threading
+
+    errors: list[BaseException] = []
+
+    def reader() -> None:
+        try:
+            for _ in range(500):
+                names.lookup_formula("water")
+                names.lookup_names("H2O")
+        except BaseException as exc:  # noqa: BLE001 - collected for the assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=reader) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+
+
 def test_store_is_fail_soft_under_lock(monkeypatch) -> None:
     # A lock timeout while caching must degrade to "not cached" (return 0), never
     # bubble up and break the lookup that triggered the write.

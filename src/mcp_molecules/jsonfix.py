@@ -10,17 +10,19 @@ inbound MCP path, so there are two independent fixes here:
   (or a nested field) arrives as a JSON *string* instead of an object, e.g.
   ``"arguments": "{\\"formula\\": \\"H2O\\"}"``. The session's strict
   ``CallToolRequestParams`` validation (``arguments: dict | None``) rejects a
-  string *before* any FastMCP/tool hook runs, so it cannot be caught inside a
+  string *before* any MCPServer/tool hook runs, so it cannot be caught inside a
   tool. We repair it in a stdio stream interposer, while the bytes are still the
   loosely-typed ``JSONRPCRequest.params``. If the string is unrepairable we
   answer the request ourselves with an actionable ``-32700`` parse error instead
   of letting the SDK emit a bare ``-32602``.
 
 * **Fix B — well-formed JSON, wrong shape.** A missing field or wrong type
-  passes the session but fails FastMCP's per-tool pydantic validation, surfaced
+  passes the session but fails MCPServer's per-tool pydantic validation, surfaced
   as a ``ToolError`` whose ``__cause__`` is the ``ValidationError``. The
-  ``MoleculesFastMCP`` subclass reshapes only that case into a message naming the
-  field and the expected-vs-received type.
+  ``MoleculesMCPServer`` subclass reshapes that case into a message naming the
+  field and the expected-vs-received type. It also hands back the reason of a
+  ``ValueError`` raised in a tool body (bad formula, unknown element), which
+  MCPServer would otherwise reduce to ``Error executing tool <name>``.
 
 No SDK types are monkeypatched; both hooks rely only on stable message shapes.
 See ``/home/pipas/llm-json-errors-howto.text`` for the full rationale.
@@ -29,20 +31,19 @@ See ``/home/pipas/llm-json-errors-howto.text`` for the full rationale.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from typing import Any
 
 import anyio
 from json_repair import loads as repair_loads
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     PARSE_ERROR,
-    ContentBlock,
+    CallToolResult,
     ErrorData,
+    InputRequiredResult,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCRequest,
 )
 from pydantic import ValidationError
@@ -99,7 +100,7 @@ def parse_error_reply(request_id: Any, tool_name: str) -> SessionMessage:
         id=request_id,
         error=ErrorData(code=PARSE_ERROR, message=msg),
     )
-    return SessionMessage(message=JSONRPCMessage(err))
+    return SessionMessage(message=err)
 
 
 def process_incoming(
@@ -114,7 +115,7 @@ def process_incoming(
     * stringified ``arguments`` that cannot be repaired -> reply with a parse
       error and forward nothing (so the session never double-answers that id).
     """
-    root = message.message.root
+    root = message.message
     if not isinstance(root, JSONRPCRequest) or root.method != "tools/call":
         return message, None
     params = root.params
@@ -126,14 +127,14 @@ def process_incoming(
         tool_name = name_val if isinstance(name_val, str) else "?"
         return None, parse_error_reply(root.id, tool_name)
     new_root = root.model_copy(update={"params": {**params, "arguments": fixed}})
-    repaired = SessionMessage(message=JSONRPCMessage(new_root), metadata=message.metadata)
+    repaired = SessionMessage(message=new_root, metadata=message.metadata)
     return repaired, None
 
 
-async def run_stdio_repaired(mcp: FastMCP) -> None:
+async def run_stdio_repaired(mcp: MCPServer) -> None:
     """Serve ``mcp`` over stdio with the tolerant-parse interposer in front.
 
-    Replaces ``FastMCP.run()`` for the stdio transport: every inbound message is
+    Replaces ``MCPServer.run()`` for the stdio transport: every inbound message is
     routed through :func:`process_incoming` before the session's strict
     validation sees it. Relies only on stable message shapes, not SDK internals.
     """
@@ -156,10 +157,10 @@ async def run_stdio_repaired(mcp: FastMCP) -> None:
 
         async with anyio.create_task_group() as tg, recv:
             tg.start_soon(pump)
-            await mcp._mcp_server.run(
+            await mcp._lowlevel_server.run(
                 recv,
                 write_stream,
-                mcp._mcp_server.create_initialization_options(),
+                mcp._lowlevel_server.create_initialization_options(),
             )
             tg.cancel_scope.cancel()
 
@@ -191,22 +192,32 @@ def format_validation_error(tool_name: str, exc: ValidationError) -> str:
     return f"Invalid arguments for tool {tool_name!r}: {'; '.join(parts)}."
 
 
-class MoleculesFastMCP(FastMCP):
-    """FastMCP whose ``call_tool`` rewrites argument-shape errors actionably.
+class MoleculesMCPServer(MCPServer):
+    """MCPServer whose ``call_tool`` rewrites argument-shape errors actionably.
 
-    FastMCP wraps a per-tool pydantic ``ValidationError`` as a ``ToolError`` with
-    ``__cause__`` set to the ``ValidationError``; only that case is rewritten.
-    Errors raised inside a tool body have a different cause and pass through
-    unchanged. The subclass instance IS the app (handlers bind ``self.call_tool``
-    at construction), so this override is what runs.
+    MCPServer wraps a per-tool pydantic ``ValidationError`` as a ``ToolError`` with
+    ``__cause__`` set to the ``ValidationError``; that case is rewritten.
+
+    The tools report bad input (an unparseable formula, an unknown element, a
+    compound not found) by raising ``ValueError``. MCPServer wraps any such
+    exception from a tool body as an ``UnexpectedToolError`` whose message is
+    only ``Error executing tool <name>``, so the model would never see why; a
+    ``ValueError`` cause gets its message back, as ``Error executing tool
+    <name>: <reason>``. Any other exception is a genuine crash and stays opaque.
+
+    The subclass instance IS the app (handlers bind ``self.call_tool`` at
+    construction), so this override is what runs.
     """
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any]
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+        self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None = None
+    ) -> CallToolResult | InputRequiredResult:
         try:
-            return await super().call_tool(name, arguments)
+            return await super().call_tool(name, arguments, context)
         except ToolError as exc:
-            if isinstance(exc.__cause__, ValidationError):
-                raise ToolError(format_validation_error(name, exc.__cause__)) from exc.__cause__
+            cause = exc.__cause__
+            if isinstance(cause, ValidationError):
+                raise ToolError(format_validation_error(name, cause)) from cause
+            if isinstance(exc, UnexpectedToolError) and isinstance(cause, ValueError):
+                raise ToolError(f"Error executing tool {name}: {cause}") from cause
             raise
